@@ -1,0 +1,156 @@
+<model>
+    <mount>//OPNsense/hilink</mount>
+    <version>1.0.0</version>
+    <description>HiLink modem configuration</description>
+    <items>
+        <general>
+            <enabled type="BooleanField">
+                <default>1</default>
+                <Required>Y</Required>
+            </enabled>
+            <update_interval type="IntegerField">
+                <default>30</default>
+                <MinimumValue>10</MinimumValue>
+                <MaximumValue>300</MaximumValue>
+                <ValidationMessage>Update interval must be between 10 and 300 seconds</ValidationMessage>
+            </update_interval>
+            <data_retention type="IntegerField">
+                <default>30</default>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>365</MaximumValue>
+                <ValidationMessage>Data retention must be between 1 and 365 days</ValidationMessage>
+            </data_retention>
+            <debug_logging type="BooleanField">
+                <default>0</default>
+            </debug_logging>
+        </general>
+        <modems>
+            <modem type="ArrayField">
+                <uuid type="TextField">
+                    <default></default>
+                    <mask>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/</mask>
+                    <ValidationMessage>Invalid UUID format</ValidationMessage>
+                </uuid>
+                <name type="TextField">
+                    <Required>Y</Required>
+                    <mask>/^[a-zA-Z0-9_-]+$/</mask>
+                    <ValidationMessage>Name can only contain letters, numbers, underscore and hyphen</ValidationMessage>
+                </name>
+                <enabled type="BooleanField">
+                    <default>1</default>
+                </enabled>
+                <ip_address type="NetworkField">
+                    <Required>Y</Required>
+                    <default>192.168.8.1</default>
+                    <AddressMask>32</AddressMask>
+                    <ValidationMessage>Please enter a valid IP address</ValidationMessage>
+                </ip_address>
+                <username type="TextField">
+                    <default>admin</default>
+                </username>
+                <password type="PasswordField">
+                    <Required>N</Required>
+                </password>
+                <auto_connect type="BooleanField">
+                    <default>1</default>
+                </auto_connect>
+                <roaming_enabled type="BooleanField">
+                    <default>0</default>
+                </roaming_enabled>
+                <max_idle_time type="IntegerField">
+                    <default>0</default>
+                    <MinimumValue>0</MinimumValue>
+                    <MaximumValue>86400</MaximumValue>
+                    <ValidationMessage>Max idle time must be between 0 and 86400 seconds</ValidationMessage>
+                </max_idle_time>
+                <network_mode type="OptionField">
+                    <default>auto</default>
+                    <OptionValues>
+                        <auto>Automatic</auto>
+                        <4g_preferred>4G Preferred</4g_preferred>
+                        <3g_preferred>3G Preferred</3g_preferred>
+                        <4g_only>4G Only</4g_only>
+                        <3g_only>3G Only</3g_only>
+                    </OptionValues>
+                </network_mode>
+                <reconnect_interval type="IntegerField">
+                    <default>60</default>
+                    <MinimumValue>10</MinimumValue>
+                    <MaximumValue>3600</MaximumValue>
+                </reconnect_interval>
+                <max_reconnect_attempts type="IntegerField">
+                    <default>3</default>
+                    <MinimumValue>1</MinimumValue>
+                    <MaximumValue>10</MaximumValue>
+                </max_reconnect_attempts>
+                <collect_interval type="IntegerField">
+                    <default>30</default>
+                    <MinimumValue>10</MinimumValue>
+                    <MaximumValue>300</MaximumValue>
+                </collect_interval>
+                <signal_threshold type="IntegerField">
+                    <default>-90</default>
+                    <MinimumValue>-120</MinimumValue>
+                    <MaximumValue>-50</MaximumValue>
+                </signal_threshold>
+                <data_limit_enabled type="BooleanField">
+                    <default>0</default>
+                </data_limit_enabled>
+                <data_limit_mb type="IntegerField">
+                    <default>10240</default>
+                    <MinimumValue>1</MinimumValue>
+                    <MaximumValue>1048576</MaximumValue>
+                </data_limit_mb>
+                <alert_email type="EmailField">
+                    <Required>N</Required>
+                    <ValidationMessage>Please enter a valid email address</ValidationMessage>
+                </alert_email>
+            </modem>
+        </modems>
+        <alerts>
+            <low_signal_threshold type="IntegerField">
+                <default>-90</default>
+                <MinimumValue>-120</MinimumValue>
+                <MaximumValue>-50</MaximumValue>
+                <ValidationMessage>Signal threshold must be between -120 and -50 dBm</ValidationMessage>
+            </low_signal_threshold>
+            <data_limit_enabled type="BooleanField">
+                <default>0</default>
+            </data_limit_enabled>
+            <data_limit_mb type="IntegerField">
+                <default>10240</default>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>1048576</MaximumValue>
+                <ValidationMessage>Data limit must be between 1 MB and 1 TB</ValidationMessage>
+            </data_limit_mb>
+            <email_alerts type="BooleanField">
+                <default>0</default>
+            </email_alerts>
+            <email_to type="EmailField">
+                <Required>N</Required>
+                <ValidationMessage>Please enter a valid email address</ValidationMessage>
+            </email_to>
+            <email_from type="EmailField">
+                <Required>N</Required>
+                <ValidationMessage>Please enter a valid email address</ValidationMessage>
+            </email_from>
+            <smtp_server type="HostnameField">
+                <Required>N</Required>
+                <ValidationMessage>Please enter a valid hostname or IP address</ValidationMessage>
+            </smtp_server>
+            <smtp_port type="PortField">
+                <default>587</default>
+                <ValidationMessage>Please enter a valid port number</ValidationMessage>
+            </smtp_port>
+            <smtp_username type="TextField">
+                <Required>N</Required>
+            </smtp_username>
+            <smtp_password type="PasswordField">
+                <Required>N</Required>
+            </smtp_password>
+            <smtp_use_tls type="BooleanField">
+                <default>1</default>
+            </smtp_use_tls>
+        </alerts>
+    </items>
+</model>

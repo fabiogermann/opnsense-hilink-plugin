@@ -1,0 +1,97 @@
+name: os-hilink
+version: 1.0.0
+origin: opnsense/os-hilink
+comment: HiLink modem management plugin for OPNsense
+maintainer: hilink-plugin@example.com
+www: https://github.com/yourusername/opnsense-hilink
+prefix: /usr/local
+licenselogic: single
+licenses: [MIT]
+categories: [net-mgmt, www]
+arch: freebsd:*:*
+desc: |
+  HiLink Plugin for OPNsense
+  
+  This plugin provides comprehensive management and monitoring capabilities
+  for Huawei HiLink-based 4G/LTE USB modems in OPNsense firewalls.
+  
+  Features:
+  - Real-time modem monitoring (signal strength, data usage, connection status)
+  - Auto-connect/disconnect management
+  - Roaming configuration
+  - Network mode selection (4G/3G/2G)
+  - Data usage tracking and alerts
+  - Historical metrics with configurable retention
+  - Web-based dashboard with real-time updates
+  
+  Supported devices:
+  - Huawei E3372s series (including E3372s-153)
+  - Huawei E3372h series (E3372h-320, E3372h-153)
+  - Huawei E8372h series (planned)
+deps: {
+  python39: {origin: lang/python39, version: "3.9"},
+  py39-aiohttp: {origin: www/py-aiohttp, version: "3.8"},
+  py39-xmltodict: {origin: devel/py-xmltodict, version: "0.13"},
+  py39-beautifulsoup4: {origin: www/py-beautifulsoup4, version: "4.11"},
+  py39-daemon: {origin: devel/py-daemon, version: "3.0"},
+  rrdtool: {origin: databases/rrdtool, version: "1.7"}
+}
+scripts: {
+  pre-install: <<EOD
+    # Create required directories
+    mkdir -p /var/log/hilink
+    mkdir -p /var/db/hilink/rrd
+    mkdir -p /usr/local/etc/hilink
+    mkdir -p /usr/local/etc/OPNsense/hilink
+    
+    # Set permissions
+    chmod 755 /var/log/hilink
+    chmod 755 /var/db/hilink
+    chmod 755 /var/db/hilink/rrd
+    chmod 755 /usr/local/etc/hilink
+EOD
+  post-install: <<EOD
+    # Make service script executable
+    chmod +x /usr/local/opnsense/scripts/hilink/hilink_service.py
+    
+    # Register with configd
+    /usr/local/etc/rc.configure_plugins
+    
+    # Restart configd to load new templates
+    service configd restart
+    
+    echo ""
+    echo "==========================================="
+    echo "HiLink Plugin Installation Complete!"
+    echo "==========================================="
+    echo ""
+    echo "To configure the plugin:"
+    echo "1. Navigate to Services > HiLink in the OPNsense web interface"
+    echo "2. Add your modem configuration"
+    echo "3. Start the service"
+    echo ""
+    echo "For documentation, visit:"
+    echo "https://github.com/yourusername/opnsense-hilink"
+    echo ""
+EOD
+  pre-deinstall: <<EOD
+    # Stop service if running
+    service hilink stop 2>/dev/null || true
+    
+    # Kill any remaining processes
+    pkill -f hilink_service.py 2>/dev/null || true
+EOD
+  post-deinstall: <<EOD
+    # Ask about data removal
+    echo ""
+    echo "Plugin files have been removed."
+    echo "Data files are preserved in:"
+    echo "  - /var/log/hilink (logs)"
+    echo "  - /var/db/hilink (RRD data)"
+    echo "  - /usr/local/etc/hilink (configuration)"
+    echo ""
+    echo "To completely remove all data, run:"
+    echo "  rm -rf /var/log/hilink /var/db/hilink /usr/local/etc/hilink"
+    echo ""
+EOD
+}

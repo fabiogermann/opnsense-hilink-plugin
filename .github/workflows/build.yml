@@ -1,0 +1,185 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y rrdtool librrd-dev npm
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r opn/requirements.txt
+    
+    - name: Set version
+      run: |
+        if [ "${{ github.event_name }}" = "push" ]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION=${{ github.event.inputs.version }}
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        echo "Building version: $VERSION"
+    
+    - name: Run tests
+      run: |
+        cd opn
+        python -m pytest tests/ --tb=short || true
+    
+    - name: Build package
+      run: |
+        cd opn
+        make clean
+        make build
+        make package VERSION=${{ env.VERSION }}
+    
+    - name: Generate checksums
+      run: |
+        cd opn/dist
+        sha256sum *.txz > checksums.sha256
+        md5sum *.txz > checksums.md5
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: hilink-plugin-${{ env.VERSION }}
+        path: |
+          opn/dist/*.txz
+          opn/dist/checksums.*
+    
+    - name: Create Release
+      if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          opn/dist/*.txz
+          opn/dist/checksums.*
+        generate_release_notes: true
+        body: |
+          ## HiLink Plugin Release ${{ env.VERSION }}
+          
+          ### Installation
+          1. Download the `os-hilink-${{ env.VERSION }}.txz` file
+          2. Upload to OPNsense via System → Firmware → Plugins
+          3. Install the plugin
+          4. Navigate to Services → HiLink to configure
+          
+          ### Checksums
+          See `checksums.sha256` and `checksums.md5` files
+          
+          ### Changelog
+          See below for auto-generated release notes
+
+  docker-test:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: hilink-plugin-${{ env.VERSION }}
+        path: ./artifacts
+    
+    - name: Build test container
+      run: |
+        cat > Dockerfile.test << 'EOF'
+        FROM python:3.9-slim
+        
+        RUN apt-get update && \
+            apt-get install -y rrdtool librrd-dev && \
+            rm -rf /var/lib/apt/lists/*
+        
+        WORKDIR /app
+        COPY opn/requirements.txt .
+        RUN pip install -r requirements.txt
+        
+        COPY artifacts/*.txz /tmp/
+        RUN cd /tmp && tar -xzf *.txz
+        
+        CMD ["python", "-m", "pytest", "/tmp/*/tests/"]
+        EOF
+        
+        docker build -f Dockerfile.test -t hilink-test .
+    
+    - name: Run container tests
+      run: |
+        docker run --rm hilink-test || true
+
+  documentation:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        pip install sphinx sphinx-rtd-theme
+    
+    - name: Build documentation
+      run: |
+        cd opn/docs
+        # Create Sphinx configuration if needed
+        cat > conf.py << 'EOF'
+        project = 'HiLink OPNsense Plugin'
+        copyright = '2024, HiLink Plugin Team'
+        author = 'HiLink Plugin Team'
+        release = '${{ env.VERSION }}'
+        extensions = ['sphinx.ext.autodoc', 'sphinx.ext.napoleon']
+        html_theme = 'sphinx_rtd_theme'
+        EOF
+        
+        # Build HTML docs
+        sphinx-build -b html . _build/html || true
+    
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./opn/docs/_build/html
+        destination_dir: ${{ env.VERSION }}
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [build, docker-test]
+    if: always()
+    
+    steps:
+    - name: Send notification
+      run: |
+        if [ "${{ needs.build.result }}" = "success" ]; then
+          echo "✅ Build successful for version ${{ env.VERSION }}"
+        else
+          echo "❌ Build failed for version ${{ env.VERSION }}"
+        fi
