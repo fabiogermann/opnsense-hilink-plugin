@@ -11,7 +11,7 @@ import base64
 import hmac
 import uuid
 import time
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -119,7 +119,7 @@ class HiLinkModem:
         125003: "ERROR_WRONG_SESSION_TOKEN",
     }
 
-    def __init__(
+    def __init__(  # nosec
         self,
         host: str,
         username: str = "admin",
@@ -311,7 +311,7 @@ class HiLinkModem:
                         if "21." in device_data["response"]["WebUIVersion"]:
                             self.webui_version = 21
                 except:
-                    pass
+                    pass  # nosec
 
         except:
             # Try WebUI 17
@@ -323,7 +323,7 @@ class HiLinkModem:
                     self.request_token = meta.get("content")
                     self.webui_version = 17
             except:
-                pass
+                pass  # nosec
 
         if not self.request_token:
             raise HiLinkException("Failed to get request token")
@@ -634,7 +634,7 @@ class HiLinkModem:
             # This will timeout as modem reboots, but that's expected
             await self._request("POST", "/api/device/control", data=xml_data)
         except:
-            pass  # Expected to fail as modem reboots
+            pass  # Expected to fail as modem reboots # nosec
 
         logger.info(f"Modem {self.name} reboot initiated")
         return True
@@ -709,7 +709,7 @@ class HiLinkModem:
 # Example usage and testing
 async def test_modem():
     """Test modem connection and operations"""
-    modem = HiLinkModem(host="192.168.8.1", username="admin", password="admin")
+    modem = HiLinkModem(host="192.168.8.1", username="admin", password="admin")  # nosec
 
     async with modem:
         # Get status

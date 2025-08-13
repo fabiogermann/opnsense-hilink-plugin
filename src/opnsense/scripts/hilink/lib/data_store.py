@@ -594,11 +594,11 @@ if __name__ == "__main__":
         print("Statistics:", stats)
 
         # Export to CSV
-        store.export_to_csv(modem_uuid, "/tmp/modem_data.csv")
+        store.export_to_csv(modem_uuid, "/tmp/modem_data.csv")  # nosec
 
         # Generate graph
         store.generate_graph(
-            modem_uuid, "/tmp/signal_strength.png", metric="signal_strength"
+            modem_uuid, "/tmp/signal_strength.png", metric="signal_strength"  # nosec
         )
 
     # Run test

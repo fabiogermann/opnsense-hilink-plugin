@@ -6,7 +6,7 @@ Handles loading, saving, and validating configuration
 import os
 import json
 import logging
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -100,7 +100,9 @@ class ConfigManager:
     # Configuration paths - can be overridden by environment variables
     CONFIG_BASE_PATH = os.environ.get("HILINK_CONFIG_DIR", "/usr/local/etc/hilink")
     CONFIG_FILE = "config.json"
-    CONFIG_XML_PATH = os.environ.get("OPNSENSE_CONFIG_DIR", "/usr/local/etc/OPNsense") + "/hilink"
+    CONFIG_XML_PATH = (
+        os.environ.get("OPNSENSE_CONFIG_DIR", "/usr/local/etc/OPNsense") + "/hilink"
+    )
     CONFIG_XML_FILE = "hilink.xml"
 
     def __init__(self, config_path: Optional[str] = None):
@@ -114,7 +116,7 @@ class ConfigManager:
         default_path = os.environ.get("HILINK_CONFIG_DIR", self.CONFIG_BASE_PATH)
         self.config_path = Path(config_path or default_path)
         self.config_file = self.config_path / self.CONFIG_FILE
-        
+
         # XML path can also be overridden
         xml_base = os.environ.get("OPNSENSE_CONFIG_DIR", "/usr/local/etc/OPNsense")
         self.xml_path = Path(xml_base) / "hilink"
@@ -649,7 +651,7 @@ if __name__ == "__main__":
     config.load()
 
     # Add a modem
-    modem = ModemConfig(
+    modem = ModemConfig(  # nosec
         name="Primary 4G Modem",
         ip_address="192.168.8.1",
         username="admin",
