@@ -74,7 +74,7 @@ jobs:
     - name: Run Safety check
       run: |
         pip install safety
-        safety check -r requirements.txt || true
+        safety scan --policy-file .safety-policy.json || safety scan || true
 
   integration:
     runs-on: ubuntu-latest
