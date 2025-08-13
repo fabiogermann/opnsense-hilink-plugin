@@ -205,11 +205,12 @@ class TestHiLinkModem:
             
             assert result is True
             mock_request.assert_called_once()
-            # Check the positional arguments
+            # Check the positional arguments (method, endpoint, data)
             call_args = mock_request.call_args
-            assert '/api/dialup/mobile-dataswitch' in call_args[0][0]  # First positional arg is endpoint
-            if len(call_args[0]) > 1:
-                assert '<dataswitch>1</dataswitch>' in call_args[0][1]  # Second positional arg is data
+            assert call_args[0][0] == 'POST'  # First arg is method
+            assert '/api/dialup/mobile-dataswitch' in call_args[0][1]  # Second arg is endpoint
+            if len(call_args[0]) > 2:
+                assert '<dataswitch>1</dataswitch>' in call_args[0][2]  # Third arg is data
     
     @pytest.mark.asyncio
     async def test_disconnect_modem(self, modem):
@@ -221,11 +222,12 @@ class TestHiLinkModem:
             
             assert result is True
             mock_request.assert_called_once()
-            # Check the positional arguments
+            # Check the positional arguments (method, endpoint, data)
             call_args = mock_request.call_args
-            assert '/api/dialup/mobile-dataswitch' in call_args[0][0]  # First positional arg is endpoint
-            if len(call_args[0]) > 1:
-                assert '<dataswitch>0</dataswitch>' in call_args[0][1]  # Second positional arg is data
+            assert call_args[0][0] == 'POST'  # First arg is method
+            assert '/api/dialup/mobile-dataswitch' in call_args[0][1]  # Second arg is endpoint
+            if len(call_args[0]) > 2:
+                assert '<dataswitch>0</dataswitch>' in call_args[0][2]  # Third arg is data
     
     @pytest.mark.asyncio
     async def test_set_network_mode(self, modem):
@@ -274,8 +276,10 @@ class TestHiLinkModem:
             
             # Check that roaming was enabled in the POST data
             post_call = mock_request.call_args_list[1]
-            if len(post_call[0]) > 1:
-                assert '<RoamAutoConnectEnable>1</RoamAutoConnectEnable>' in post_call[0][1]  # Second positional arg is data
+            # The second call should be POST with data
+            assert post_call[0][0] == 'POST'  # First arg is method
+            if len(post_call[0]) > 2:
+                assert '<RoamAutoConnectEnable>1</RoamAutoConnectEnable>' in post_call[0][2]  # Third arg is data
     
     @pytest.mark.asyncio
     async def test_error_handling(self, modem):
