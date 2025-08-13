@@ -351,6 +351,9 @@ class TestConfigManager:
         modem = ModemConfig(name="Export Test Modem")
         config_manager.add_modem(modem)
         config_manager.alerts.email_alerts = True
+        # Add required email configuration when email_alerts is enabled
+        config_manager.alerts.email_to = "test@example.com"
+        config_manager.alerts.smtp_server = "smtp.example.com"
         
         # Export configuration
         export_file = os.path.join(temp_config_dir, "export.json")
@@ -368,6 +371,8 @@ class TestConfigManager:
         assert len(config_manager2.modems) == 1
         assert config_manager2.modems[0].name == "Export Test Modem"
         assert config_manager2.alerts.email_alerts is True
+        assert config_manager2.alerts.email_to == "test@example.com"
+        assert config_manager2.alerts.smtp_server == "smtp.example.com"
     
     def test_password_encryption(self, config_manager):
         """Test password encryption/decryption"""

@@ -32,7 +32,7 @@ class DataStore:
     """Manages RRD databases for HiLink metrics"""
 
     # RRD database configuration
-    RRD_BASE_PATH = "/var/db/hilink/rrd"
+    RRD_BASE_PATH = os.environ.get("OPNSENSE_DATA_DIR", "/var/db") + "/hilink/rrd"
     RRD_STEP = 30  # seconds between updates
 
     # Data source definitions

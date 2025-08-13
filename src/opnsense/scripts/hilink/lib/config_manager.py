@@ -97,10 +97,10 @@ class AlertConfig:
 class ConfigManager:
     """Manages HiLink plugin configuration"""
 
-    # Configuration paths
-    CONFIG_BASE_PATH = "/usr/local/etc/hilink"
+    # Configuration paths - can be overridden by environment variables
+    CONFIG_BASE_PATH = os.environ.get("HILINK_CONFIG_DIR", "/usr/local/etc/hilink")
     CONFIG_FILE = "config.json"
-    CONFIG_XML_PATH = "/usr/local/etc/OPNsense/hilink"
+    CONFIG_XML_PATH = os.environ.get("OPNSENSE_CONFIG_DIR", "/usr/local/etc/OPNsense") + "/hilink"
     CONFIG_XML_FILE = "hilink.xml"
 
     def __init__(self, config_path: Optional[str] = None):
@@ -110,9 +110,14 @@ class ConfigManager:
         Args:
             config_path: Optional custom configuration path
         """
-        self.config_path = Path(config_path or self.CONFIG_BASE_PATH)
+        # Allow environment variable override
+        default_path = os.environ.get("HILINK_CONFIG_DIR", self.CONFIG_BASE_PATH)
+        self.config_path = Path(config_path or default_path)
         self.config_file = self.config_path / self.CONFIG_FILE
-        self.xml_path = Path(self.CONFIG_XML_PATH)
+        
+        # XML path can also be overridden
+        xml_base = os.environ.get("OPNSENSE_CONFIG_DIR", "/usr/local/etc/OPNsense")
+        self.xml_path = Path(xml_base) / "hilink"
         self.xml_file = self.xml_path / self.CONFIG_XML_FILE
 
         # Configuration data

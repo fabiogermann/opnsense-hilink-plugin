@@ -24,7 +24,7 @@ from config_manager import ConfigManager, ModemConfig
 from data_store import DataStore, MetricData
 
 # Configure logging
-LOG_DIR = Path("/var/log/hilink")
+LOG_DIR = Path(os.environ.get("HILINK_LOG_DIR", "/var/log/hilink"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
