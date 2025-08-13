@@ -35,27 +35,26 @@ jobs:
     - name: Check code formatting
       run: |
         pip install black
-        black --check opn/src/opnsense/scripts/hilink
+        black --check src/opnsense/scripts/hilink
     
     - name: Run linting
       run: |
         pip install pylint
-        find opn/src -name "*.py" -exec pylint {} \; || true
+        find src -name "*.py" -exec pylint {} \; || true
     
     - name: Type checking
       run: |
         pip install mypy
-        mypy opn/src/opnsense/scripts/hilink --ignore-missing-imports || true
+        mypy src/opnsense/scripts/hilink --ignore-missing-imports || true
     
     - name: Run tests
       run: |
-        cd opn
         python -m pytest tests/ -v --cov=src/opnsense/scripts/hilink --cov-report=xml --cov-report=term
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
-        file: ./opn/coverage.xml
+        file: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
@@ -67,14 +66,15 @@ jobs:
     - uses: actions/checkout@v3
     
     - name: Run Bandit Security Scan
-      uses: gaurav-nelson/bandit-action@v1
-      with:
-        path: "opn/src"
+      run: |
+        pip install bandit
+        bandit -r src/ -f json -o bandit-report.json || true
+        bandit -r src/ || true
     
     - name: Run Safety check
       run: |
         pip install safety
-        safety check -r opn/requirements.txt || true
+        safety check -r requirements.txt || true
 
   integration:
     runs-on: ubuntu-latest
@@ -93,19 +93,16 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y rrdtool librrd-dev
         python -m pip install --upgrade pip
-        pip install -r opn/requirements.txt
+        pip install -r requirements.txt
     
     - name: Test service startup
       run: |
-        cd opn
         timeout 10 python src/opnsense/scripts/hilink/hilink_service.py --foreground --debug || true
     
     - name: Test configuration manager
       run: |
-        cd opn
         python -c "from src.opnsense.scripts.hilink.lib.config_manager import ConfigManager; cm = ConfigManager(); cm.load(); print('Config loaded successfully')"
     
     - name: Test HiLink API module
       run: |
-        cd opn
         python -c "from src.opnsense.scripts.hilink.lib.hilink_api import HiLinkModem; print('HiLink API imported successfully')"

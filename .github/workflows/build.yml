@@ -31,7 +31,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r opn/requirements.txt
+        pip install -r requirements.txt
     
     - name: Set version
       run: |
@@ -45,19 +45,17 @@ jobs:
     
     - name: Run tests
       run: |
-        cd opn
         python -m pytest tests/ --tb=short || true
     
     - name: Build package
       run: |
-        cd opn
         make clean
         make build
         make package VERSION=${{ env.VERSION }}
     
     - name: Generate checksums
       run: |
-        cd opn/dist
+        cd dist
         sha256sum *.txz > checksums.sha256
         md5sum *.txz > checksums.md5
     
@@ -66,16 +64,16 @@ jobs:
       with:
         name: hilink-plugin-${{ env.VERSION }}
         path: |
-          opn/dist/*.txz
-          opn/dist/checksums.*
+          dist/*.txz
+          dist/checksums.*
     
     - name: Create Release
       if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          opn/dist/*.txz
-          opn/dist/checksums.*
+          dist/*.txz
+          dist/checksums.*
         generate_release_notes: true
         body: |
           ## HiLink Plugin Release ${{ env.VERSION }}
@@ -115,7 +113,7 @@ jobs:
             rm -rf /var/lib/apt/lists/*
         
         WORKDIR /app
-        COPY opn/requirements.txt .
+        COPY requirements.txt .
         RUN pip install -r requirements.txt
         
         COPY artifacts/*.txz /tmp/
@@ -149,7 +147,7 @@ jobs:
     
     - name: Build documentation
       run: |
-        cd opn/docs
+        cd docs
         # Create Sphinx configuration if needed
         cat > conf.py << 'EOF'
         project = 'HiLink OPNsense Plugin'
@@ -167,7 +165,7 @@ jobs:
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./opn/docs/_build/html
+        publish_dir: ./docs/_build/html
         destination_dir: ${{ env.VERSION }}
 
   notify:
