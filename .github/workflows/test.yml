@@ -112,7 +112,7 @@ jobs:
         export HILINK_CONFIG_DIR=/tmp/hilink
         mkdir -p /tmp/opnsense/etc /tmp/opnsense/data /tmp/opnsense/log /tmp/hilink
         
-        timeout 10 python src/opnsense/scripts/hilink/hilink_service.py --foreground --debug
+        timeout 10 python src/opnsense/scripts/hilink/hilink_service.py --foreground --debug | grep "Service initialized with 0 modem(s)"
     
     - name: Test configuration manager
       run: |
