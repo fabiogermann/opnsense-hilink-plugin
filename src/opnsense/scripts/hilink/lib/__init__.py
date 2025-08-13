@@ -11,11 +11,11 @@ from .config_manager import ConfigManager
 from .data_store import DataStore
 
 __all__ = [
-    'HiLinkModem',
-    'ModemStatus', 
-    'SignalInfo',
-    'DataUsage',
-    'NetworkMode',
-    'ConfigManager',
-    'DataStore'
+    "HiLinkModem",
+    "ModemStatus",
+    "SignalInfo",
+    "DataUsage",
+    "NetworkMode",
+    "ConfigManager",
+    "DataStore",
 ]
