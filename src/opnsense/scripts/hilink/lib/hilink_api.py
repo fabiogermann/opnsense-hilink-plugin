@@ -11,7 +11,7 @@ import base64
 import hmac
 import uuid
 import time
-import defusedxml.ElementTree as ET
+import defusedxml.ElementTree as DefusedET
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum

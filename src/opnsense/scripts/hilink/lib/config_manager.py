@@ -6,7 +6,8 @@ Handles loading, saving, and validating configuration
 import os
 import json
 import logging
-import defusedxml.ElementTree as ET
+import defusedxml
+import defusedxml.ElementTree as DefusedET
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -183,7 +184,7 @@ class ConfigManager:
     def _load_from_xml(self) -> bool:
         """Load configuration from OPNsense XML format"""
         try:
-            tree = ET.parse(self.xml_file)
+            tree = DefusedET.parse(self.xml_file)
             root = tree.getroot()
 
             # Find hilink section
@@ -308,95 +309,106 @@ class ConfigManager:
     def _save_to_xml(self) -> bool:
         """Save configuration to OPNsense XML format"""
         try:
-            # Create root element
-            root = ET.Element("opnsense")
-            hilink = ET.SubElement(root, "hilink")
+            # Create root element using standard ElementTree
+            import xml.etree.ElementTree as StandardET
+
+            defusedxml.defuse_stdlib()
+            root = StandardET.Element("opnsense")
+            hilink = StandardET.SubElement(root, "hilink")
 
             # Save general config
-            general = ET.SubElement(hilink, "general")
-            ET.SubElement(general, "enabled").text = (
+            general = StandardET.SubElement(hilink, "general")
+            StandardET.SubElement(general, "enabled").text = (
                 "1" if self.general.enabled else "0"
             )
-            ET.SubElement(general, "update_interval").text = str(
+            StandardET.SubElement(general, "update_interval").text = str(
                 self.general.update_interval
             )
-            ET.SubElement(general, "data_retention").text = str(
+            StandardET.SubElement(general, "data_retention").text = str(
                 self.general.data_retention
             )
-            ET.SubElement(general, "debug_logging").text = (
+            StandardET.SubElement(general, "debug_logging").text = (
                 "1" if self.general.debug_logging else "0"
             )
 
             # Save modems
-            modems = ET.SubElement(hilink, "modems")
+            modems = StandardET.SubElement(hilink, "modems")
             for modem in self.modems:
-                modem_elem = ET.SubElement(modems, "modem")
-                ET.SubElement(modem_elem, "uuid").text = modem.uuid
-                ET.SubElement(modem_elem, "name").text = modem.name
-                ET.SubElement(modem_elem, "enabled").text = (
+                modem_elem = StandardET.SubElement(modems, "modem")
+                StandardET.SubElement(modem_elem, "uuid").text = modem.uuid
+                StandardET.SubElement(modem_elem, "name").text = modem.name
+                StandardET.SubElement(modem_elem, "enabled").text = (
                     "1" if modem.enabled else "0"
                 )
-                ET.SubElement(modem_elem, "ip_address").text = modem.ip_address
-                ET.SubElement(modem_elem, "username").text = modem.username
-                ET.SubElement(modem_elem, "password").text = self._encrypt_password(
-                    modem.password
+                StandardET.SubElement(modem_elem, "ip_address").text = modem.ip_address
+                StandardET.SubElement(modem_elem, "username").text = modem.username
+                StandardET.SubElement(modem_elem, "password").text = (
+                    self._encrypt_password(modem.password)
                 )
-                ET.SubElement(modem_elem, "auto_connect").text = (
+                StandardET.SubElement(modem_elem, "auto_connect").text = (
                     "1" if modem.auto_connect else "0"
                 )
-                ET.SubElement(modem_elem, "roaming_enabled").text = (
+                StandardET.SubElement(modem_elem, "roaming_enabled").text = (
                     "1" if modem.roaming_enabled else "0"
                 )
-                ET.SubElement(modem_elem, "max_idle_time").text = str(
+                StandardET.SubElement(modem_elem, "max_idle_time").text = str(
                     modem.max_idle_time
                 )
-                ET.SubElement(modem_elem, "network_mode").text = modem.network_mode
-                ET.SubElement(modem_elem, "reconnect_interval").text = str(
+                StandardET.SubElement(modem_elem, "network_mode").text = (
+                    modem.network_mode
+                )
+                StandardET.SubElement(modem_elem, "reconnect_interval").text = str(
                     modem.reconnect_interval
                 )
-                ET.SubElement(modem_elem, "max_reconnect_attempts").text = str(
+                StandardET.SubElement(modem_elem, "max_reconnect_attempts").text = str(
                     modem.max_reconnect_attempts
                 )
-                ET.SubElement(modem_elem, "collect_interval").text = str(
+                StandardET.SubElement(modem_elem, "collect_interval").text = str(
                     modem.collect_interval
                 )
-                ET.SubElement(modem_elem, "signal_threshold").text = str(
+                StandardET.SubElement(modem_elem, "signal_threshold").text = str(
                     modem.signal_threshold
                 )
-                ET.SubElement(modem_elem, "data_limit_enabled").text = (
+                StandardET.SubElement(modem_elem, "data_limit_enabled").text = (
                     "1" if modem.data_limit_enabled else "0"
                 )
-                ET.SubElement(modem_elem, "data_limit_mb").text = str(
+                StandardET.SubElement(modem_elem, "data_limit_mb").text = str(
                     modem.data_limit_mb
                 )
-                ET.SubElement(modem_elem, "alert_email").text = modem.alert_email
+                StandardET.SubElement(modem_elem, "alert_email").text = (
+                    modem.alert_email
+                )
 
             # Save alerts
-            alerts = ET.SubElement(hilink, "alerts")
-            ET.SubElement(alerts, "low_signal_threshold").text = str(
+            alerts = StandardET.SubElement(hilink, "alerts")
+            StandardET.SubElement(alerts, "low_signal_threshold").text = str(
                 self.alerts.low_signal_threshold
             )
-            ET.SubElement(alerts, "data_limit_enabled").text = (
+            StandardET.SubElement(alerts, "data_limit_enabled").text = (
                 "1" if self.alerts.data_limit_enabled else "0"
             )
-            ET.SubElement(alerts, "data_limit_mb").text = str(self.alerts.data_limit_mb)
-            ET.SubElement(alerts, "email_alerts").text = (
+            StandardET.SubElement(alerts, "data_limit_mb").text = str(
+                self.alerts.data_limit_mb
+            )
+            StandardET.SubElement(alerts, "email_alerts").text = (
                 "1" if self.alerts.email_alerts else "0"
             )
-            ET.SubElement(alerts, "email_to").text = self.alerts.email_to
-            ET.SubElement(alerts, "email_from").text = self.alerts.email_from
-            ET.SubElement(alerts, "smtp_server").text = self.alerts.smtp_server
-            ET.SubElement(alerts, "smtp_port").text = str(self.alerts.smtp_port)
-            ET.SubElement(alerts, "smtp_username").text = self.alerts.smtp_username
-            ET.SubElement(alerts, "smtp_password").text = self._encrypt_password(
-                self.alerts.smtp_password
+            StandardET.SubElement(alerts, "email_to").text = self.alerts.email_to
+            StandardET.SubElement(alerts, "email_from").text = self.alerts.email_from
+            StandardET.SubElement(alerts, "smtp_server").text = self.alerts.smtp_server
+            StandardET.SubElement(alerts, "smtp_port").text = str(self.alerts.smtp_port)
+            StandardET.SubElement(alerts, "smtp_username").text = (
+                self.alerts.smtp_username
             )
-            ET.SubElement(alerts, "smtp_use_tls").text = (
+            StandardET.SubElement(alerts, "smtp_password").text = (
+                self._encrypt_password(self.alerts.smtp_password)
+            )
+            StandardET.SubElement(alerts, "smtp_use_tls").text = (
                 "1" if self.alerts.smtp_use_tls else "0"
             )
 
             # Write to file
-            tree = ET.ElementTree(root)
+            tree = StandardET.ElementTree(root)
             tree.write(self.xml_file, encoding="utf-8", xml_declaration=True)
 
             logger.info(f"Configuration saved to {self.xml_file}")

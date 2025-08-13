@@ -79,10 +79,10 @@ jobs:
         bandit -r src/ -f json -o bandit-report.json || true
         bandit -r src/
     
-    - name: Run Safety check
-      run: |
-        pip install safety
-        safety scan --policy-file .safety-policy.json || safety scan
+    - name: Run Safety CLI to check for vulnerabilities
+      uses: pyupio/safety-action@v1
+      with:
+        api-key: ${{ secrets.SAFETY_API_KEY }}
 
   integration:
     runs-on: ubuntu-latest
