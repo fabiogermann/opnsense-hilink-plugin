@@ -50,9 +50,11 @@ jobs:
     - name: Run tests
       run: |
         # Create necessary directories for tests with proper permissions
-        mkdir -p /tmp/opnsense/etc /tmp/opnsense/data
+        mkdir -p /tmp/opnsense/etc /tmp/opnsense/data /tmp/opnsense/log /tmp/hilink
         export OPNSENSE_CONFIG_DIR=/tmp/opnsense/etc
         export OPNSENSE_DATA_DIR=/tmp/opnsense/data
+        export HILINK_LOG_DIR=/tmp/opnsense/log
+        export HILINK_CONFIG_DIR=/tmp/hilink
         
         # Run tests with continue-on-error for now
         python -m pytest tests/ -v --cov=src/opnsense/scripts/hilink --cov-report=xml --cov-report=term || true
@@ -106,7 +108,9 @@ jobs:
         # Set test environment variables
         export OPNSENSE_CONFIG_DIR=/tmp/opnsense/etc
         export OPNSENSE_DATA_DIR=/tmp/opnsense/data
-        mkdir -p /tmp/opnsense/etc /tmp/opnsense/data
+        export HILINK_LOG_DIR=/tmp/opnsense/log
+        export HILINK_CONFIG_DIR=/tmp/hilink
+        mkdir -p /tmp/opnsense/etc /tmp/opnsense/data /tmp/opnsense/log /tmp/hilink
         
         timeout 10 python src/opnsense/scripts/hilink/hilink_service.py --foreground --debug || true
     
@@ -114,7 +118,9 @@ jobs:
       run: |
         export OPNSENSE_CONFIG_DIR=/tmp/opnsense/etc
         export OPNSENSE_DATA_DIR=/tmp/opnsense/data
-        mkdir -p /tmp/opnsense/etc /tmp/opnsense/data
+        export HILINK_LOG_DIR=/tmp/opnsense/log
+        export HILINK_CONFIG_DIR=/tmp/hilink
+        mkdir -p /tmp/opnsense/etc /tmp/opnsense/data /tmp/opnsense/log /tmp/hilink
         
         python -c "from src.opnsense.scripts.hilink.lib.config_manager import ConfigManager; cm = ConfigManager(); cm.load(); print('Config loaded successfully')" || true
     

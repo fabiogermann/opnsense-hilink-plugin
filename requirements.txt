@@ -1,4 +1,4 @@
-# HiLink Plugin Python Requirements
+e# HiLink Plugin Python Requirements
 
 # Core dependencies
 aiohttp>=3.10.5,<4.0.0  # Pinned to avoid known vulnerabilities
