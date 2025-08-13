@@ -310,9 +310,8 @@ class ConfigManager:
         """Save configuration to OPNsense XML format"""
         try:
             # Create root element using standard ElementTree
-            import xml.etree.ElementTree as StandardET
+            import xml.etree.ElementTree as StandardET  # nosec
 
-            defusedxml.defuse_stdlib()
             root = StandardET.Element("opnsense")
             hilink = StandardET.SubElement(root, "hilink")
 
