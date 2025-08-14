@@ -14,6 +14,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.version }}
     
     steps:
     - uses: actions/checkout@v4
@@ -34,6 +36,7 @@ jobs:
         pip install -r requirements.txt
     
     - name: Set version
+      id: set-version
       run: |
         if [ "${{ github.event_name }}" = "push" ]; then
           VERSION=${GITHUB_REF#refs/tags/v}
@@ -41,6 +44,7 @@ jobs:
           VERSION=${{ github.event.inputs.version }}
         fi
         echo "VERSION=$VERSION" >> $GITHUB_ENV
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Building version: $VERSION"
     
     - name: Run tests
@@ -100,7 +104,7 @@ jobs:
     - name: Download artifacts
       uses: actions/download-artifact@v4
       with:
-        name: hilink-plugin-${{ env.VERSION }}
+        name: hilink-plugin-${{ needs.build.outputs.version }}
         path: ./artifacts
     
     - name: Build test container
@@ -153,7 +157,7 @@ jobs:
         project = 'HiLink OPNsense Plugin'
         copyright = '2024, HiLink Plugin Team'
         author = 'HiLink Plugin Team'
-        release = '${{ env.VERSION }}'
+        release = '${{ needs.build.outputs.version }}'
         extensions = ['sphinx.ext.autodoc', 'sphinx.ext.napoleon']
         html_theme = 'sphinx_rtd_theme'
         EOF
@@ -166,7 +170,7 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./docs/_build/html
-        destination_dir: ${{ env.VERSION }}
+        destination_dir: ${{ needs.build.outputs.version }}
 
   notify:
     runs-on: ubuntu-latest
@@ -177,7 +181,7 @@ jobs:
     - name: Send notification
       run: |
         if [ "${{ needs.build.result }}" = "success" ]; then
-          echo "✅ Build successful for version ${{ env.VERSION }}"
+          echo "✅ Build successful for version ${{ needs.build.outputs.version }}"
         else
-          echo "❌ Build failed for version ${{ env.VERSION }}"
+          echo "❌ Build failed for version ${{ needs.build.outputs.version }}"
         fi
