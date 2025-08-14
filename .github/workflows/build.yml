@@ -122,14 +122,22 @@ jobs:
             rm -rf /var/lib/apt/lists/*
         
         WORKDIR /app
-        COPY requirements.txt .
+        
+        # Copy the entire project for testing
+        COPY . .
+        
+        # Install dependencies
         RUN pip install --upgrade pip && \
             pip install -r requirements.txt
         
+        # Copy and extract the built artifact to verify it
         COPY artifacts/*.txz /tmp/
-        RUN cd /tmp && tar -xzf *.txz
+        RUN cd /tmp && \
+            tar -xzf *.txz && \
+            ls -la /tmp/
         
-        CMD ["python", "-m", "pytest", "/tmp/*/tests/"]
+        # Run tests from the source directory
+        CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]
         EOF
         
         docker build -f Dockerfile.test -t hilink-test .
