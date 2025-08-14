@@ -1,0 +1,430 @@
+name: Deploy Package Repository
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-repo:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for all tags
+    
+    - name: Setup Pages
+      uses: actions/configure-pages@v5
+    
+    - name: Install FreeBSD pkg tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget jq
+        
+        # Download FreeBSD pkg binary (static build for Linux)
+        wget -q https://github.com/freebsd/pkg/releases/download/1.20.9/pkg-1.20.9-x86_64-linux.tar.xz
+        tar -xf pkg-1.20.9-x86_64-linux.tar.xz
+        sudo mv pkg /usr/local/bin/
+        sudo chmod +x /usr/local/bin/pkg
+    
+    - name: Create repository structure
+      run: |
+        mkdir -p repo/FreeBSD:13:amd64
+        mkdir -p repo/FreeBSD:14:amd64
+        mkdir -p repo/.well-known
+        
+        # Create repo metadata directory
+        mkdir -p repo/meta
+    
+    - name: Download all release assets
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Get all releases
+        releases=$(curl -s \
+          -H "Authorization: token $GITHUB_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/${{ github.repository }}/releases")
+        
+        # Download packages from each release
+        echo "$releases" | jq -r '.[] | @json' | while read -r release; do
+          tag=$(echo "$release" | jq -r '.tag_name')
+          echo "Processing release: $tag"
+          
+          # Get assets for this release
+          assets=$(echo "$release" | jq -r '.assets[] | select(.name | endswith(".txz")) | @json')
+          
+          if [ -n "$assets" ]; then
+            echo "$assets" | while read -r asset; do
+              name=$(echo "$asset" | jq -r '.name')
+              url=$(echo "$asset" | jq -r '.browser_download_url')
+              
+              echo "Downloading $name from $tag"
+              
+              # Download to both FreeBSD version directories
+              wget -q "$url" -O "repo/FreeBSD:13:amd64/$name"
+              cp "repo/FreeBSD:13:amd64/$name" "repo/FreeBSD:14:amd64/$name"
+            done
+          fi
+        done
+    
+    - name: Generate package manifests
+      run: |
+        # For each package file, extract and process manifest
+        for dir in repo/FreeBSD:*/; do
+          echo "Processing directory: $dir"
+          cd "$dir"
+          
+          for pkg in *.txz; do
+            if [ -f "$pkg" ]; then
+              echo "Processing package: $pkg"
+              
+              # Extract manifest from package
+              tar -xf "$pkg" -O +MANIFEST > "${pkg%.txz}.manifest" 2>/dev/null || true
+              
+              # Extract compact manifest for index
+              tar -xf "$pkg" -O +COMPACT_MANIFEST > "${pkg%.txz}.ucl" 2>/dev/null || true
+            fi
+          done
+          
+          cd - > /dev/null
+        done
+    
+    - name: Create repository catalog
+      run: |
+        for dir in repo/FreeBSD:*/; do
+          arch_dir=$(basename "$dir")
+          echo "Creating catalog for $arch_dir"
+          
+          cd "$dir"
+          
+          # Create packagesite.yaml
+          cat > packagesite.yaml << 'EOF'
+        version: 2
+        packages: {}
+        EOF
+          
+          # Add each package to the catalog
+          for pkg in *.txz; do
+            if [ -f "$pkg" ]; then
+              # Extract basic info from package
+              name="${pkg%-*-*.txz}"
+              version=$(echo "$pkg" | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)\.txz$/\1/')
+              
+              # Get file size and checksum
+              size=$(stat -c%s "$pkg")
+              sum=$(sha256sum "$pkg" | cut -d' ' -f1)
+              
+              # Append to catalog (simplified)
+              cat >> packagesite.yaml << EOF
+          $name:
+            name: "$name"
+            version: "$version"
+            origin: "opnsense/hilink"
+            comment: "HiLink modem management plugin for OPNsense"
+            arch: "freebsd:13:x86:64"
+            maintainer: "hilink@example.com"
+            www: "https://github.com/${{ github.repository }}"
+            prefix: "/usr/local"
+            flatsize: $size
+            path: "$pkg"
+            sum: "$sum"
+            desc: "HiLink modem management plugin providing monitoring and control for Huawei HiLink modems"
+            categories: ["net-mgmt", "opnsense"]
+        EOF
+            fi
+          done
+          
+          # Compress catalog
+          xz -c packagesite.yaml > packagesite.txz
+          
+          # Create meta.conf
+          cat > meta.conf << EOF
+        version = 2;
+        packing_format = "txz";
+        manifests = "packagesite.txz";
+        filesite = "filesite.txz";
+        manifests_archive = "packagesite.txz";
+        filesite_archive = "filesite.txz";
+        EOF
+          
+          cd - > /dev/null
+        done
+    
+    - name: Create repository configuration
+      run: |
+        # Create OPNsense repository configuration file
+        cat > repo/HiLink.conf << 'EOF'
+        HiLink: {
+          url: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:${ABI}",
+          mirror_type: "NONE",
+          signature_type: "NONE",
+          fingerprints: "/usr/share/keys/pkg",
+          enabled: yes
+        }
+        EOF
+        
+        # Create installation instructions
+        cat > repo/README.md << 'EOF'
+        # HiLink Plugin Repository
+        
+        This is the FreeBSD package repository for the OPNsense HiLink plugin.
+        
+        ## Installation
+        
+        ### Method 1: Add Repository to OPNsense
+        
+        1. SSH into your OPNsense system
+        2. Create the repository configuration:
+        
+        ```bash
+        fetch -o /usr/local/etc/pkg/repos/HiLink.conf \
+          https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/HiLink.conf
+        ```
+        
+        3. Update package database:
+        ```bash
+        pkg update
+        ```
+        
+        4. Install the plugin:
+        ```bash
+        pkg install os-hilink
+        ```
+        
+        ### Method 2: Direct Package Installation
+        
+        Download and install the package directly:
+        
+        ```bash
+        # For OPNsense on FreeBSD 13
+        pkg add https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:13:amd64/os-hilink-[version].txz
+        
+        # For OPNsense on FreeBSD 14
+        pkg add https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:14:amd64/os-hilink-[version].txz
+        ```
+        
+        ## Available Packages
+        
+        EOF
+        
+        # List available packages
+        for dir in repo/FreeBSD:*/; do
+          arch=$(basename "$dir")
+          echo "### $arch" >> repo/README.md
+          echo "" >> repo/README.md
+          for pkg in "$dir"*.txz; do
+            if [ -f "$pkg" ]; then
+              basename "$pkg" | sed 's/^/- /' >> repo/README.md
+            fi
+          done
+          echo "" >> repo/README.md
+        done
+        
+        # Add update instructions
+        cat >> repo/README.md << 'EOF'
+        ## Updating
+        
+        To update the plugin to the latest version:
+        
+        ```bash
+        pkg update
+        pkg upgrade os-hilink
+        ```
+        
+        ## Removal
+        
+        To remove the plugin:
+        
+        ```bash
+        pkg remove os-hilink
+        ```
+        
+        ## Repository URL
+        
+        - Base URL: `https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/`
+        - FreeBSD 13: `https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:13:amd64/`
+        - FreeBSD 14: `https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:14:amd64/`
+        
+        ## Support
+        
+        For issues and support, please visit: https://github.com/${{ github.repository }}
+        EOF
+    
+    - name: Create index.html
+      run: |
+        cat > repo/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>HiLink Plugin Repository</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    max-width: 900px;
+                    margin: 0 auto;
+                    padding: 20px;
+                    background: #f5f5f5;
+                }
+                .container {
+                    background: white;
+                    padding: 30px;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                }
+                h1 {
+                    color: #ff6c00;
+                    border-bottom: 3px solid #ff6c00;
+                    padding-bottom: 10px;
+                }
+                h2 {
+                    color: #333;
+                    margin-top: 30px;
+                }
+                pre {
+                    background: #f4f4f4;
+                    padding: 15px;
+                    border-radius: 5px;
+                    overflow-x: auto;
+                    border-left: 4px solid #ff6c00;
+                }
+                code {
+                    background: #f4f4f4;
+                    padding: 2px 5px;
+                    border-radius: 3px;
+                }
+                .package-list {
+                    list-style: none;
+                    padding: 0;
+                }
+                .package-list li {
+                    background: #f9f9f9;
+                    margin: 10px 0;
+                    padding: 10px;
+                    border-radius: 5px;
+                    border-left: 3px solid #ff6c00;
+                }
+                .package-list a {
+                    color: #ff6c00;
+                    text-decoration: none;
+                    font-weight: bold;
+                }
+                .package-list a:hover {
+                    text-decoration: underline;
+                }
+                .button {
+                    display: inline-block;
+                    background: #ff6c00;
+                    color: white;
+                    padding: 10px 20px;
+                    border-radius: 5px;
+                    text-decoration: none;
+                    margin: 10px 5px;
+                }
+                .button:hover {
+                    background: #e55a00;
+                }
+                .arch-section {
+                    margin: 20px 0;
+                    padding: 20px;
+                    background: #fafafa;
+                    border-radius: 8px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🔌 HiLink Plugin Repository</h1>
+                <p>FreeBSD package repository for the OPNsense HiLink modem management plugin.</p>
+                
+                <div style="margin: 20px 0;">
+                    <a href="https://github.com/${{ github.repository }}" class="button">📦 View on GitHub</a>
+                    <a href="HiLink.conf" class="button">⚙️ Download Repo Config</a>
+                </div>
+                
+                <h2>Quick Installation</h2>
+                <pre><code>fetch -o /usr/local/etc/pkg/repos/HiLink.conf \
+          https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/HiLink.conf
+        pkg update
+        pkg install os-hilink</code></pre>
+                
+                <h2>Available Packages</h2>
+        EOF
+        
+        # Add package listings for each architecture
+        for dir in repo/FreeBSD:*/; do
+          arch=$(basename "$dir")
+          cat >> repo/index.html << EOF
+                <div class="arch-section">
+                    <h3>📁 $arch</h3>
+                    <ul class="package-list">
+        EOF
+          
+          for pkg in "$dir"*.txz; do
+            if [ -f "$pkg" ]; then
+              pkgname=$(basename "$pkg")
+              size=$(du -h "$pkg" | cut -f1)
+              cat >> repo/index.html << EOF
+                        <li>
+                            <a href="$arch/$pkgname">$pkgname</a>
+                            <span style="color: #666; margin-left: 10px;">($size)</span>
+                        </li>
+        EOF
+            fi
+          done
+          
+          cat >> repo/index.html << EOF
+                    </ul>
+                </div>
+        EOF
+        done
+        
+        cat >> repo/index.html << 'EOF'
+                
+                <h2>Repository Structure</h2>
+                <ul>
+                    <li><code>/FreeBSD:13:amd64/</code> - Packages for FreeBSD 13 (OPNsense 23.x)</li>
+                    <li><code>/FreeBSD:14:amd64/</code> - Packages for FreeBSD 14 (OPNsense 24.x)</li>
+                </ul>
+                
+                <h2>Support</h2>
+                <p>For issues, feature requests, or contributions, please visit the 
+                   <a href="https://github.com/${{ github.repository }}">GitHub repository</a>.</p>
+                
+                <hr style="margin-top: 40px; border: none; border-top: 1px solid #ddd;">
+                <p style="text-align: center; color: #666; font-size: 0.9em;">
+                    Generated on <script>document.write(new Date().toLocaleDateString());</script>
+                </p>
+            </div>
+        </body>
+        </html>
+        EOF
+    
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./repo
+  
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-repo
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

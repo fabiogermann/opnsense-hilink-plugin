@@ -82,14 +82,35 @@ jobs:
         body: |
           ## HiLink Plugin Release ${{ env.VERSION }}
           
-          ### Installation
-          1. Download the `os-hilink-${{ env.VERSION }}.txz` file
+          ### Installation Methods
+          
+          #### Method 1: Via Package Repository (Recommended)
+          ```bash
+          # Add repository
+          fetch -o /usr/local/etc/pkg/repos/HiLink.conf \
+            https://${{ github.repository_owner }}.github.io/opnsense-hilink-plugin/HiLink.conf
+          
+          # Install plugin
+          pkg update && pkg install os-hilink
+          ```
+          
+          #### Method 2: Direct Download
+          1. Download the `os-hilink-${{ env.VERSION }}.txz` file below
           2. Upload to OPNsense via System → Firmware → Plugins
           3. Install the plugin
           4. Navigate to Services → HiLink to configure
           
+          #### Method 3: Command Line
+          ```bash
+          pkg add https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/os-hilink-${{ env.VERSION }}.txz
+          ```
+          
+          ### Package Repository
+          🌐 **Repository URL**: https://${{ github.repository_owner }}.github.io/opnsense-hilink-plugin/
+          
           ### Checksums
-          See `checksums.sha256` and `checksums.md5` files
+          - SHA256: See `checksums.sha256`
+          - MD5: See `checksums.md5`
           
           ### Changelog
           See below for auto-generated release notes
