@@ -1,0 +1,71 @@
+<form>
+    <field>
+        <id>hilink.alerts.low_signal_threshold</id>
+        <label>Low signal threshold</label>
+        <type>text</type>
+        <help>Warn when the signal drops below this value in dBm (-120 to -50).</help>
+    </field>
+    <field>
+        <id>hilink.alerts.data_limit_enabled</id>
+        <label>Global data limit</label>
+        <type>checkbox</type>
+        <help>Enable a global monthly data limit alert.</help>
+    </field>
+    <field>
+        <id>hilink.alerts.data_limit_mb</id>
+        <label>Data limit (MB)</label>
+        <type>text</type>
+        <help>Monthly data limit in megabytes.</help>
+    </field>
+    <field>
+        <id>hilink.alerts.email_alerts</id>
+        <label>Email alerts</label>
+        <type>checkbox</type>
+        <help>Send alerts by email.</help>
+    </field>
+    <field>
+        <id>hilink.alerts.email_to</id>
+        <label>Email recipient</label>
+        <type>text</type>
+        <help>Address to send alerts to.</help>
+    </field>
+    <field>
+        <id>hilink.alerts.email_from</id>
+        <label>Email sender</label>
+        <type>text</type>
+        <help>Address alerts are sent from.</help>
+    </field>
+    <field>
+        <id>hilink.alerts.smtp_server</id>
+        <label>SMTP server</label>
+        <type>text</type>
+        <help>Hostname or IP address of the SMTP server.</help>
+    </field>
+    <field>
+        <id>hilink.alerts.smtp_port</id>
+        <label>SMTP port</label>
+        <type>text</type>
+        <help>TCP port of the SMTP server (default 587).</help>
+    </field>
+    <field>
+        <id>hilink.alerts.smtp_username</id>
+        <label>SMTP username</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Optional SMTP authentication username.</help>
+    </field>
+    <field>
+        <id>hilink.alerts.smtp_password</id>
+        <label>SMTP password</label>
+        <type>password</type>
+        <advanced>true</advanced>
+        <help>Optional SMTP authentication password.</help>
+    </field>
+    <field>
+        <id>hilink.alerts.smtp_use_tls</id>
+        <label>Use TLS</label>
+        <type>checkbox</type>
+        <advanced>true</advanced>
+        <help>Use STARTTLS when connecting to the SMTP server.</help>
+    </field>
+</form>

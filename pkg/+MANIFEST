@@ -29,12 +29,13 @@ desc: |
   - Huawei E3372h series (E3372h-320, E3372h-153)
   - Huawei E8372h series (planned)
 deps: {
-  python39: {origin: lang/python39, version: "3.9"},
-  py39-aiohttp: {origin: www/py-aiohttp, version: "3.8"},
-  py39-xmltodict: {origin: devel/py-xmltodict, version: "0.13"},
-  py39-beautifulsoup4: {origin: www/py-beautifulsoup4, version: "4.11"},
-  py39-daemon: {origin: devel/py-daemon, version: "3.0"},
-  rrdtool: {origin: databases/rrdtool, version: "1.7"}
+  python311: {origin: lang/python311, version: "3.11"},
+  py311-aiohttp: {origin: www/py-aiohttp, version: "3.9"},
+  py311-xmltodict: {origin: devel/py-xmltodict, version: "0.13"},
+  py311-beautifulsoup: {origin: www/py-beautifulsoup, version: "4.12"},
+  py311-defusedxml: {origin: devel/py-defusedxml, version: "0.7"},
+  py311-rrdtool: {origin: databases/py-rrdtool, version: "0.1"},
+  rrdtool: {origin: databases/rrdtool, version: "1.8"}
 }
 scripts: {
   pre-install: <<EOD
@@ -51,13 +52,11 @@ scripts: {
     chmod 755 /usr/local/etc/hilink
 EOD
   post-install: <<EOD
-    # Make service script executable
+    # Make scripts executable
     chmod +x /usr/local/opnsense/scripts/hilink/hilink_service.py
-    
-    # Register with configd
-    /usr/local/etc/rc.configure_plugins
-    
-    # Restart configd to load new templates
+    chmod +x /usr/local/opnsense/scripts/hilink/hilink_control.py
+
+    # Restart configd to load new actions
     service configd restart
     
     echo ""
@@ -76,8 +75,8 @@ EOD
 EOD
   pre-deinstall: <<EOD
     # Stop service if running
-    service hilink stop 2>/dev/null || true
-    
+    configctl hilink stop 2>/dev/null || true
+
     # Kill any remaining processes
     pkill -f hilink_service.py 2>/dev/null || true
 EOD

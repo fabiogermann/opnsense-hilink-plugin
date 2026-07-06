@@ -1,0 +1,101 @@
+<form>
+    <field>
+        <id>modem.enabled</id>
+        <label>Enabled</label>
+        <type>checkbox</type>
+    </field>
+    <field>
+        <id>modem.name</id>
+        <label>Name</label>
+        <type>text</type>
+        <help>Friendly name (letters, numbers, underscore and hyphen).</help>
+    </field>
+    <field>
+        <id>modem.ip_address</id>
+        <label>IP address</label>
+        <type>text</type>
+        <help>Modem management address, usually 192.168.8.1.</help>
+    </field>
+    <field>
+        <id>modem.username</id>
+        <label>Username</label>
+        <type>text</type>
+        <help>Web interface username, usually admin.</help>
+    </field>
+    <field>
+        <id>modem.password</id>
+        <label>Password</label>
+        <type>password</type>
+        <help>Web interface password. Leave empty if the modem does not require a login.</help>
+    </field>
+    <field>
+        <id>modem.auto_connect</id>
+        <label>Auto connect</label>
+        <type>checkbox</type>
+        <help>Automatically reconnect the mobile data session when it drops.</help>
+    </field>
+    <field>
+        <id>modem.roaming_enabled</id>
+        <label>Allow roaming</label>
+        <type>checkbox</type>
+    </field>
+    <field>
+        <id>modem.network_mode</id>
+        <label>Network mode</label>
+        <type>dropdown</type>
+    </field>
+    <field>
+        <id>modem.max_idle_time</id>
+        <label>Max idle time</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Disconnect after this many idle seconds (0 disables).</help>
+    </field>
+    <field>
+        <id>modem.reconnect_interval</id>
+        <label>Reconnect interval</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Seconds between reconnect attempts (10-3600).</help>
+    </field>
+    <field>
+        <id>modem.max_reconnect_attempts</id>
+        <label>Max reconnect attempts</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Reconnect attempts before backing off (1-10).</help>
+    </field>
+    <field>
+        <id>modem.collect_interval</id>
+        <label>Collect interval</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Seconds between metric collections (10-300).</help>
+    </field>
+    <field>
+        <id>modem.signal_threshold</id>
+        <label>Signal threshold</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Warn when signal drops below this dBm value (-120 to -50).</help>
+    </field>
+    <field>
+        <id>modem.data_limit_enabled</id>
+        <label>Enforce data limit</label>
+        <type>checkbox</type>
+        <help>Disconnect the modem when the monthly data limit is reached.</help>
+    </field>
+    <field>
+        <id>modem.data_limit_mb</id>
+        <label>Data limit (MB)</label>
+        <type>text</type>
+        <help>Monthly data limit in megabytes.</help>
+    </field>
+    <field>
+        <id>modem.alert_email</id>
+        <label>Alert email</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Optional per-modem alert email address.</help>
+    </field>
+</form>

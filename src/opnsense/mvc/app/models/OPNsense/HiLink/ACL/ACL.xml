@@ -1,0 +1,9 @@
+<acl>
+    <page-services-hilink>
+        <name>Services: HiLink</name>
+        <patterns>
+            <pattern>ui/hilink/*</pattern>
+            <pattern>api/hilink/*</pattern>
+        </patterns>
+    </page-services-hilink>
+</acl>

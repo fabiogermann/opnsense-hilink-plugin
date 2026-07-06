@@ -1,4 +1,5 @@
 <?php
+
 /**
  * HiLink Monitor Controller
  * Provides real-time monitoring data
@@ -13,16 +14,29 @@ use OPNsense\HiLink\HiLink;
 class MonitorController extends ApiControllerBase
 {
     /**
-     * Get current modem status
-     * @return array
+     * Validate that a request supplied uuid belongs to a configured modem.
+     * Prevents arbitrary strings from being passed to configd.
+     * @param string $uuid
+     * @return bool
      */
-    public function statusAction()
+    private function isKnownModem($uuid)
     {
-        $backend = new Backend();
-        $modemUuid = $this->request->get('modem_uuid', '');
-        
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $uuid)) {
+            return false;
+        }
+        $model = new HiLink();
+        return $model->getNodeByReference('modems.modem.' . $uuid) !== null;
+    }
+
+    /**
+     * Fetch requested modem uuid, falling back to the first enabled modem
+     * @return string
+     */
+    private function resolveModemUuid()
+    {
+        $modemUuid = (string)$this->request->get('modem_uuid', null, '');
+
         if (empty($modemUuid)) {
-            // Get first enabled modem
             $model = new HiLink();
             foreach ($model->modems->modem->iterateItems() as $uuid => $modem) {
                 if ((string)$modem->enabled === '1') {
@@ -31,25 +45,35 @@ class MonitorController extends ApiControllerBase
                 }
             }
         }
-        
+
+        return $modemUuid;
+    }
+
+    /**
+     * Get current modem status (connection, signal and usage)
+     * @return array
+     */
+    public function statusAction()
+    {
+        $this->sessionClose();
+        $modemUuid = $this->resolveModemUuid();
+
         if (empty($modemUuid)) {
             return ['error' => 'No modem configured or enabled'];
         }
-        
-        $response = $backend->configdRun("hilink getstatus {$modemUuid}");
-        $data = json_decode($response, true);
-        
-        if ($data === null) {
-            return [
-                'error' => 'Failed to get modem status',
-                'raw_response' => $response
-            ];
+        if (!$this->isKnownModem($modemUuid)) {
+            return ['error' => 'Unknown modem'];
         }
-        
-        return [
-            'status' => 'ok',
-            'data' => $data
-        ];
+
+        $backend = new Backend();
+        $response = $backend->configdpRun('hilink getstatus', [$modemUuid]);
+        $data = json_decode((string)$response, true);
+
+        if ($data === null) {
+            return ['error' => 'Failed to get modem status'];
+        }
+
+        return ['status' => 'ok', 'data' => $data];
     }
 
     /**
@@ -58,23 +82,12 @@ class MonitorController extends ApiControllerBase
      */
     public function signalAction()
     {
-        $modemUuid = $this->request->get('modem_uuid', '');
-        
-        // Mock data for now - will be replaced with actual backend call
-        return [
-            'status' => 'ok',
-            'data' => [
-                'rssi' => -65,
-                'rsrp' => -95,
-                'rsrq' => -10,
-                'sinr' => 15,
-                'signal_bars' => 4,
-                'signal_quality' => 'good',
-                'cell_id' => 12345,
-                'band' => 'B3',
-                'frequency' => 1800
-            ]
-        ];
+        $result = $this->statusAction();
+        if (!empty($result['error'])) {
+            return $result;
+        }
+
+        return ['status' => 'ok', 'data' => $result['data']['signal'] ?? []];
     }
 
     /**
@@ -83,31 +96,12 @@ class MonitorController extends ApiControllerBase
      */
     public function dataAction()
     {
-        $modemUuid = $this->request->get('modem_uuid', '');
-        $period = $this->request->get('period', 'session');
-        
-        // Mock data for now
-        return [
-            'status' => 'ok',
-            'data' => [
-                'session' => [
-                    'upload' => 1048576,
-                    'download' => 10485760,
-                    'total' => 11534336,
-                    'duration' => 3600
-                ],
-                'today' => [
-                    'upload' => 5242880,
-                    'download' => 52428800,
-                    'total' => 57671680
-                ],
-                'month' => [
-                    'upload' => 1073741824,
-                    'download' => 10737418240,
-                    'total' => 11811160064
-                ]
-            ]
-        ];
+        $result = $this->statusAction();
+        if (!empty($result['error'])) {
+            return $result;
+        }
+
+        return ['status' => 'ok', 'data' => $result['data']['usage'] ?? []];
     }
 
     /**
@@ -116,49 +110,22 @@ class MonitorController extends ApiControllerBase
      */
     public function metricsAction()
     {
-        $modemUuid = $this->request->get('modem_uuid', '');
-        $start = $this->request->get('start', time() - 3600);
-        $end = $this->request->get('end', time());
-        $resolution = $this->request->get('resolution', '5min');
-        
-        $backend = new Backend();
-        $response = $backend->configdRun("hilink getmetrics {$modemUuid}");
-        $data = json_decode($response, true);
-        
-        if ($data === null) {
-            // Return mock data for demonstration
-            $timestamps = [];
-            $signal_strength = [];
-            $data_rx = [];
-            $data_tx = [];
-            
-            $current = $start;
-            while ($current <= $end) {
-                $timestamps[] = date('c', $current);
-                $signal_strength[] = -65 + rand(-10, 10);
-                $data_rx[] = rand(1000000, 10000000);
-                $data_tx[] = rand(500000, 5000000);
-                $current += 300; // 5 minute intervals
-            }
-            
-            return [
-                'status' => 'ok',
-                'data' => [
-                    'timestamps' => $timestamps,
-                    'metrics' => [
-                        'signal_strength' => $signal_strength,
-                        'data_rx' => $data_rx,
-                        'data_tx' => $data_tx,
-                        'connection_state' => array_fill(0, count($timestamps), 1)
-                    ]
-                ]
-            ];
+        $this->sessionClose();
+        $modemUuid = $this->resolveModemUuid();
+
+        if (empty($modemUuid) || !$this->isKnownModem($modemUuid)) {
+            return ['error' => 'Unknown modem'];
         }
-        
-        return [
-            'status' => 'ok',
-            'data' => $data
-        ];
+
+        $backend = new Backend();
+        $response = $backend->configdpRun('hilink getmetrics', [$modemUuid]);
+        $data = json_decode((string)$response, true);
+
+        if ($data === null) {
+            return ['error' => 'No metrics available'];
+        }
+
+        return ['status' => 'ok', 'data' => $data];
     }
 
     /**
@@ -169,23 +136,24 @@ class MonitorController extends ApiControllerBase
     {
         $model = new HiLink();
         $modems = [];
-        
+
         foreach ($model->modems->modem->iterateItems() as $uuid => $modem) {
             if ((string)$modem->enabled === '1') {
                 $modems[] = [
                     'uuid' => $uuid,
                     'name' => (string)$modem->name,
                     'ip_address' => (string)$modem->ip_address,
+                    'data_limit_enabled' => (string)$modem->data_limit_enabled === '1',
+                    'data_limit_mb' => (int)((string)$modem->data_limit_mb),
                     'enabled' => true,
-                    'status' => $this->getModemQuickStatus($uuid)
                 ];
             }
         }
-        
+
         return [
             'status' => 'ok',
             'modems' => $modems,
-            'total' => count($modems)
+            'total' => count($modems),
         ];
     }
 
@@ -195,42 +163,41 @@ class MonitorController extends ApiControllerBase
      */
     public function alertsAction()
     {
-        $active = $this->request->get('active', 'true') === 'true';
-        
-        // Mock alerts for demonstration
-        $alerts = [];
-        
-        if ($active) {
-            // Check for any active alerts
-            $model = new HiLink();
-            $lowSignalThreshold = (int)$model->alerts->low_signal_threshold;
-            
-            // This would normally check actual signal levels
-            // For now, return empty or mock alert
-            $alerts = [];
-        }
-        
-        return [
-            'status' => 'ok',
-            'alerts' => $alerts,
-            'count' => count($alerts)
-        ];
+        // Alerting is evaluated by the backend service; nothing queued via the API yet.
+        return ['status' => 'ok', 'alerts' => [], 'count' => 0];
     }
 
     /**
-     * Get quick status for a modem
-     * @param string $uuid
+     * Run a modem control command via configd
+     * @param string $command connect|disconnect|reboot
      * @return array
      */
-    private function getModemQuickStatus($uuid)
+    private function modemCommand($command)
     {
-        // This would normally query the backend
-        // For now, return mock status
+        if (!$this->request->isPost()) {
+            return ['status' => 'error', 'message' => 'Invalid request method'];
+        }
+
+        $this->sessionClose();
+        $modemUuid = (string)$this->request->get('modem_uuid', null, '');
+        if (empty($modemUuid)) {
+            $modemUuid = (string)$this->request->getPost('modem_uuid', null, '');
+        }
+
+        if (empty($modemUuid)) {
+            return ['status' => 'error', 'message' => 'Modem UUID required'];
+        }
+        if (!$this->isKnownModem($modemUuid)) {
+            return ['status' => 'error', 'message' => 'Unknown modem'];
+        }
+
+        $backend = new Backend();
+        $response = $backend->configdpRun('hilink ' . $command, [$modemUuid]);
+
         return [
-            'connected' => true,
-            'signal' => -65,
-            'network_type' => '4G',
-            'operator' => 'Carrier Name'
+            'status' => 'ok',
+            'message' => ucfirst($command) . ' command sent',
+            'response' => $response,
         ];
     }
 
@@ -240,24 +207,7 @@ class MonitorController extends ApiControllerBase
      */
     public function connectAction()
     {
-        if ($this->request->isPost()) {
-            $modemUuid = $this->request->get('modem_uuid', '');
-            
-            if (empty($modemUuid)) {
-                return ['status' => 'error', 'message' => 'Modem UUID required'];
-            }
-            
-            $backend = new Backend();
-            $response = $backend->configdRun("hilink connect {$modemUuid}");
-            
-            return [
-                'status' => 'ok',
-                'message' => 'Connect command sent',
-                'response' => $response
-            ];
-        }
-        
-        return ['status' => 'error', 'message' => 'Invalid request method'];
+        return $this->modemCommand('connect');
     }
 
     /**
@@ -266,24 +216,7 @@ class MonitorController extends ApiControllerBase
      */
     public function disconnectAction()
     {
-        if ($this->request->isPost()) {
-            $modemUuid = $this->request->get('modem_uuid', '');
-            
-            if (empty($modemUuid)) {
-                return ['status' => 'error', 'message' => 'Modem UUID required'];
-            }
-            
-            $backend = new Backend();
-            $response = $backend->configdRun("hilink disconnect {$modemUuid}");
-            
-            return [
-                'status' => 'ok',
-                'message' => 'Disconnect command sent',
-                'response' => $response
-            ];
-        }
-        
-        return ['status' => 'error', 'message' => 'Invalid request method'];
+        return $this->modemCommand('disconnect');
     }
 
     /**
@@ -292,23 +225,6 @@ class MonitorController extends ApiControllerBase
      */
     public function rebootAction()
     {
-        if ($this->request->isPost()) {
-            $modemUuid = $this->request->get('modem_uuid', '');
-            
-            if (empty($modemUuid)) {
-                return ['status' => 'error', 'message' => 'Modem UUID required'];
-            }
-            
-            $backend = new Backend();
-            $response = $backend->configdRun("hilink reboot {$modemUuid}");
-            
-            return [
-                'status' => 'ok',
-                'message' => 'Reboot command sent',
-                'response' => $response
-            ];
-        }
-        
-        return ['status' => 'error', 'message' => 'Invalid request method'];
+        return $this->modemCommand('reboot');
     }
 }

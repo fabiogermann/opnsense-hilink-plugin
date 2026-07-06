@@ -5,9 +5,128 @@
 
 <script>
     $( document ).ready(function() {
-        // Initialize dashboard
-        var dashboard = new HiLinkDashboard();
-        dashboard.initialize();
+        var refreshTimer = null;
+
+        function formatBytes(bytes) {
+            bytes = parseInt(bytes, 10);
+            if (isNaN(bytes) || bytes < 0) {
+                return '-';
+            }
+            var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            var i = 0;
+            while (bytes >= 1024 && i < units.length - 1) {
+                bytes /= 1024;
+                i++;
+            }
+            return bytes.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+        }
+
+        function updateServiceStatus() {
+            ajaxGet('/api/hilink/service/status', {}, function(data, status) {
+                if (status !== 'success') {
+                    return;
+                }
+                var running = data['running'] === true;
+                $('#serviceStatus')
+                    .text(running ? '{{ lang._('Running') }}' : '{{ lang._('Stopped') }}')
+                    .removeClass('label-success label-danger label-default')
+                    .addClass(running ? 'label-success' : 'label-danger');
+                $('#serviceEnabled')
+                    .text(data['enabled'] ? '{{ lang._('Yes') }}' : '{{ lang._('No') }}')
+                    .removeClass('label-success label-warning label-default')
+                    .addClass(data['enabled'] ? 'label-success' : 'label-warning');
+                $('#btnServiceStart').toggle(!running);
+                $('#btnServiceStop').toggle(running);
+            });
+        }
+
+        function renderModemCard(modem, data) {
+            var tpl = $('#modemCardTemplate').html();
+            var signal = (data && data.signal) ? data.signal : {};
+            var usage = (data && data.usage) ? data.usage : {};
+            var connected = !!(data && data.connected);
+            var bars = parseInt(signal.signal_bars, 10) || 0;
+            var usedBytes = parseInt(usage.monthly_total, 10) || 0;
+            var limitBytes = modem.data_limit_enabled ? modem.data_limit_mb * 1024 * 1024 : 0;
+            var percent = limitBytes > 0 ? Math.min(100, Math.round(usedBytes / limitBytes * 100)) : 0;
+
+            var tokens = {
+                'UUID': modem.uuid,
+                'NAME': modem.name,
+                'STATUS': data === null ? '{{ lang._('Unreachable') }}'
+                        : (connected ? '{{ lang._('Connected') }}' : '{{ lang._('Disconnected') }}'),
+                'STATUS_CLASS': data === null ? 'default' : (connected ? 'success' : 'danger'),
+                'IP_ADDRESS': modem.ip_address,
+                'NETWORK_TYPE': (data && data.network_type) || '-',
+                'OPERATOR': (data && data.network_operator) || '-',
+                'WAN_IP': (data && data.wan_ip) || '-',
+                'SIGNAL_DBM': signal.rssi !== undefined ? signal.rssi : '-',
+                'SIGNAL_QUALITY': signal.signal_quality || '-',
+                'DATA_PERCENT': percent,
+                'DATA_USED': formatBytes(usedBytes),
+                'DATA_LIMIT': limitBytes > 0 ? formatBytes(limitBytes) : '{{ lang._('No limit') }}',
+                'CONNECT_DISABLED': connected ? 'disabled' : '',
+                'DISCONNECT_DISABLED': connected ? '' : 'disabled'
+            };
+            for (var i = 1; i <= 5; i++) {
+                tokens['BAR' + i] = bars >= i ? '' : 'inactive';
+            }
+            Object.keys(tokens).forEach(function(key) {
+                tpl = tpl.split('%%' + key + '%%').join(String(tokens[key]));
+            });
+            return tpl;
+        }
+
+        function refreshModems() {
+            ajaxGet('/api/hilink/monitor/overview', {}, function(data, status) {
+                if (status !== 'success' || data['status'] !== 'ok') {
+                    return;
+                }
+                $('#modemCount').text(data['total']);
+                $('#noModemsMessage').toggle(data['total'] === 0);
+                var container = $('#modemCards');
+                container.empty();
+                data['modems'].forEach(function(modem) {
+                    ajaxGet('/api/hilink/monitor/status', {'modem_uuid': modem.uuid}, function(statusData, reqStatus) {
+                        var modemData = (reqStatus === 'success' && statusData['status'] === 'ok')
+                            ? statusData['data'] : null;
+                        container.append(renderModemCard(modem, modemData));
+                    });
+                });
+                $('#lastUpdate').text(new Date().toLocaleTimeString());
+            });
+        }
+
+        function refreshAll() {
+            updateServiceStatus();
+            refreshModems();
+        }
+
+        function serviceCommand(command) {
+            ajaxCall('/api/hilink/service/' + command, {}, function() {
+                setTimeout(refreshAll, 1000);
+            });
+        }
+
+        $('#btnServiceStart').click(function() { serviceCommand('start'); });
+        $('#btnServiceStop').click(function() { serviceCommand('stop'); });
+        $('#btnServiceRestart').click(function() { serviceCommand('restart'); });
+
+        $('#modemCards').on('click', '.btn-connect, .btn-disconnect, .btn-reboot', function() {
+            var uuid = $(this).data('uuid');
+            var command = $(this).hasClass('btn-connect') ? 'connect'
+                        : ($(this).hasClass('btn-disconnect') ? 'disconnect' : 'reboot');
+            if (command === 'reboot' && !confirm('{{ lang._('Reboot this modem?') }}')) {
+                return;
+            }
+            ajaxCall('/api/hilink/monitor/' + command, {'modem_uuid': uuid}, function() {
+                setTimeout(refreshModems, 2000);
+            });
+        });
+
+        refreshAll();
+        refreshTimer = setInterval(refreshAll, 30000);
+        $(window).on('unload', function() { clearInterval(refreshTimer); });
     });
 </script>
 
@@ -78,53 +197,7 @@
                         </div>
                     </div>
                 </div>
-                
-                <!-- Charts Section -->
-                <div class="row" id="chartsSection" style="display:none;">
-                    <div class="col-md-6">
-                        <div class="panel panel-default">
-                            <div class="panel-heading">
-                                <h3 class="panel-title">
-                                    <i class="fa fa-signal"></i> {{ lang._('Signal Strength History') }}
-                                </h3>
-                            </div>
-                            <div class="panel-body">
-                                <canvas id="signalChart" height="200"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="panel panel-default">
-                            <div class="panel-heading">
-                                <h3 class="panel-title">
-                                    <i class="fa fa-exchange"></i> {{ lang._('Data Usage') }}
-                                </h3>
-                            </div>
-                            <div class="panel-body">
-                                <canvas id="dataChart" height="200"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Alerts Section -->
-                <div class="row" id="alertsSection" style="display:none;">
-                    <div class="col-md-12">
-                        <div class="panel panel-default">
-                            <div class="panel-heading">
-                                <h3 class="panel-title">
-                                    <i class="fa fa-exclamation-triangle"></i> {{ lang._('Active Alerts') }}
-                                </h3>
-                            </div>
-                            <div class="panel-body">
-                                <div id="alertsList">
-                                    <!-- Alerts will be dynamically inserted here -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
+
             </div>
         </div>
     </div>
@@ -191,9 +264,6 @@
                             <button class="btn btn-danger btn-reboot" data-uuid="%%UUID%%">
                                 <i class="fa fa-power-off"></i> {{ lang._('Reboot') }}
                             </button>
-                            <button class="btn btn-info btn-details" data-uuid="%%UUID%%">
-                                <i class="fa fa-info-circle"></i> {{ lang._('Details') }}
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -201,9 +271,6 @@
         </div>
     </div>
 </script>
-
-<!-- Include dashboard JavaScript -->
-<script type="text/javascript" src="/ui/js/hilink/dashboard.js"></script>
 
 <style>
 .modem-card {

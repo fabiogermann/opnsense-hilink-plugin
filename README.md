@@ -39,8 +39,8 @@ A comprehensive OPNsense plugin for monitoring and managing Huawei HiLink-based 
 
 ## Requirements
 
-- OPNsense 23.7 or later (24.1+ recommended)
-- Python 3.9+
+- OPNsense 24.7 or later (25.1+ recommended)
+- Python 3.11+
 - Huawei HiLink-compatible USB modem
 - Web browser (Chrome 90+, Firefox 88+, Safari 14+, Edge 90+)
 

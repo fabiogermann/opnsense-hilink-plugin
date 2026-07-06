@@ -105,6 +105,11 @@ class ConfigManager:
         os.environ.get("OPNSENSE_CONFIG_DIR", "/usr/local/etc/OPNsense") + "/hilink"
     )
     CONFIG_XML_FILE = "hilink.xml"
+    # The OPNsense system configuration is the source of truth on a firewall
+    SYSTEM_CONFIG_XML = os.environ.get("OPNSENSE_SYSTEM_CONFIG", "/conf/config.xml")
+
+    # Prefix marking values stored base64 encoded by this plugin
+    B64_PREFIX = "b64:"
 
     def __init__(self, config_path: Optional[str] = None):
         """
@@ -118,9 +123,15 @@ class ConfigManager:
         self.config_path = Path(config_path or default_path)
         self.config_file = self.config_path / self.CONFIG_FILE
 
-        # XML path can also be overridden
-        xml_base = os.environ.get("OPNSENSE_CONFIG_DIR", "/usr/local/etc/OPNsense")
-        self.xml_path = Path(xml_base) / "hilink"
+        # XML path: env override wins, an explicit config path keeps the
+        # plugin XML next to the JSON, otherwise use the system default
+        xml_base = os.environ.get("OPNSENSE_CONFIG_DIR")
+        if xml_base is not None:
+            self.xml_path = Path(xml_base) / "hilink"
+        elif config_path:
+            self.xml_path = self.config_path
+        else:
+            self.xml_path = Path("/usr/local/etc/OPNsense") / "hilink"
         self.xml_file = self.xml_path / self.CONFIG_XML_FILE
 
         # Configuration data
@@ -132,9 +143,12 @@ class ConfigManager:
         self._ensure_directories()
 
     def _ensure_directories(self):
-        """Ensure configuration directories exist"""
-        self.config_path.mkdir(parents=True, exist_ok=True)
-        self.xml_path.mkdir(parents=True, exist_ok=True)
+        """Ensure configuration directories exist (best effort)"""
+        for path in (self.config_path, self.xml_path):
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                logger.warning(f"Could not create directory {path}: {e}")
 
     def load(self) -> bool:
         """
@@ -143,16 +157,20 @@ class ConfigManager:
         Returns:
             True if configuration loaded successfully
         """
-        # Try to load from OPNsense XML first
-        if self.xml_file.exists():
-            return self._load_from_xml()
-        # Fall back to JSON
-        elif self.config_file.exists():
-            return self._load_from_json()
-        else:
-            logger.info("No configuration found, using defaults")
-            self._create_default_config()
+        # Prefer the OPNsense system configuration when it contains our section
+        system_config = Path(self.SYSTEM_CONFIG_XML)
+        if system_config.exists() and self._load_from_xml(system_config):
             return True
+        # Then a plugin specific XML export
+        if self.xml_file.exists():
+            return self._load_from_xml(self.xml_file)
+        # Fall back to JSON
+        if self.config_file.exists():
+            return self._load_from_json()
+
+        logger.info("No configuration found, using defaults")
+        self._create_default_config()
+        return True
 
     def _load_from_json(self) -> bool:
         """Load configuration from JSON file"""
@@ -181,16 +199,34 @@ class ConfigManager:
             logger.error(f"Failed to load configuration: {e}")
             return False
 
-    def _load_from_xml(self) -> bool:
-        """Load configuration from OPNsense XML format"""
+    @staticmethod
+    def _findint(elem, name: str, default: int) -> int:
+        """Read an integer child element, tolerating missing or empty values"""
+        text = elem.findtext(name)
+        if text is None or not str(text).strip():
+            return default
         try:
-            tree = DefusedET.parse(self.xml_file)
+            return int(text)
+        except ValueError:
+            return default
+
+    def _load_from_xml(self, xml_file: Optional[Path] = None) -> bool:
+        """Load configuration from OPNsense XML format
+
+        Understands both the plugin export format and the OPNsense system
+        configuration (/conf/config.xml), where modem entries carry their
+        uuid as an XML attribute.
+        """
+        if xml_file is None:
+            xml_file = self.xml_file
+        try:
+            tree = DefusedET.parse(xml_file)
             root = tree.getroot()
 
             # Find hilink section
             hilink = root.find(".//hilink")
             if hilink is None:
-                logger.warning("No hilink section in XML configuration")
+                logger.warning(f"No hilink section in {xml_file}")
                 return False
 
             # Load general config
@@ -198,8 +234,8 @@ class ConfigManager:
             if general is not None:
                 self.general = GeneralConfig(
                     enabled=general.findtext("enabled", "1") == "1",
-                    update_interval=int(general.findtext("update_interval", "30")),
-                    data_retention=int(general.findtext("data_retention", "30")),
+                    update_interval=self._findint(general, "update_interval", 30),
+                    data_retention=self._findint(general, "data_retention", 30),
                     debug_logging=general.findtext("debug_logging", "0") == "1",
                 )
 
@@ -208,40 +244,44 @@ class ConfigManager:
             modems = hilink.find("modems")
             if modems is not None:
                 for modem_elem in modems.findall("modem"):
+                    # OPNsense stores the uuid as attribute, plugin exports as child
+                    modem_uuid = (
+                        modem_elem.get("uuid")
+                        or modem_elem.findtext("uuid")
+                        or str(uuid.uuid4())
+                    )
                     modem = ModemConfig(
-                        uuid=modem_elem.findtext("uuid", str(uuid.uuid4())),
-                        name=modem_elem.findtext("name", "HiLink Modem"),
+                        uuid=modem_uuid,
+                        name=modem_elem.findtext("name") or "HiLink Modem",
                         enabled=modem_elem.findtext("enabled", "1") == "1",
-                        ip_address=modem_elem.findtext("ip_address", "192.168.8.1"),
-                        username=modem_elem.findtext("username", "admin"),
+                        ip_address=modem_elem.findtext("ip_address") or "192.168.8.1",
+                        username=modem_elem.findtext("username") or "admin",
                         password=self._decrypt_password(
-                            modem_elem.findtext("password", "")
+                            modem_elem.findtext("password", "") or ""
                         ),
                         auto_connect=modem_elem.findtext("auto_connect", "1") == "1",
                         roaming_enabled=modem_elem.findtext("roaming_enabled", "0")
                         == "1",
-                        max_idle_time=int(modem_elem.findtext("max_idle_time", "0")),
-                        network_mode=modem_elem.findtext("network_mode", "auto"),
-                        reconnect_interval=int(
-                            modem_elem.findtext("reconnect_interval", "60")
+                        max_idle_time=self._findint(modem_elem, "max_idle_time", 0),
+                        network_mode=modem_elem.findtext("network_mode") or "auto",
+                        reconnect_interval=self._findint(
+                            modem_elem, "reconnect_interval", 60
                         ),
-                        max_reconnect_attempts=int(
-                            modem_elem.findtext("max_reconnect_attempts", "3")
+                        max_reconnect_attempts=self._findint(
+                            modem_elem, "max_reconnect_attempts", 3
                         ),
-                        collect_interval=int(
-                            modem_elem.findtext("collect_interval", "30")
+                        collect_interval=self._findint(
+                            modem_elem, "collect_interval", 30
                         ),
-                        signal_threshold=int(
-                            modem_elem.findtext("signal_threshold", "-90")
+                        signal_threshold=self._findint(
+                            modem_elem, "signal_threshold", -90
                         ),
                         data_limit_enabled=modem_elem.findtext(
                             "data_limit_enabled", "0"
                         )
                         == "1",
-                        data_limit_mb=int(
-                            modem_elem.findtext("data_limit_mb", "10240")
-                        ),
-                        alert_email=modem_elem.findtext("alert_email", ""),
+                        data_limit_mb=self._findint(modem_elem, "data_limit_mb", 10240),
+                        alert_email=modem_elem.findtext("alert_email", "") or "",
                     )
                     self.modems.append(modem)
 
@@ -249,29 +289,29 @@ class ConfigManager:
             alerts = hilink.find("alerts")
             if alerts is not None:
                 self.alerts = AlertConfig(
-                    low_signal_threshold=int(
-                        alerts.findtext("low_signal_threshold", "-90")
+                    low_signal_threshold=self._findint(
+                        alerts, "low_signal_threshold", -90
                     ),
                     data_limit_enabled=alerts.findtext("data_limit_enabled", "0")
                     == "1",
-                    data_limit_mb=int(alerts.findtext("data_limit_mb", "10240")),
+                    data_limit_mb=self._findint(alerts, "data_limit_mb", 10240),
                     email_alerts=alerts.findtext("email_alerts", "0") == "1",
-                    email_to=alerts.findtext("email_to", ""),
-                    email_from=alerts.findtext("email_from", ""),
-                    smtp_server=alerts.findtext("smtp_server", ""),
-                    smtp_port=int(alerts.findtext("smtp_port", "587")),
-                    smtp_username=alerts.findtext("smtp_username", ""),
+                    email_to=alerts.findtext("email_to", "") or "",
+                    email_from=alerts.findtext("email_from", "") or "",
+                    smtp_server=alerts.findtext("smtp_server", "") or "",
+                    smtp_port=self._findint(alerts, "smtp_port", 587),
+                    smtp_username=alerts.findtext("smtp_username", "") or "",
                     smtp_password=self._decrypt_password(
-                        alerts.findtext("smtp_password", "")
+                        alerts.findtext("smtp_password", "") or ""
                     ),
                     smtp_use_tls=alerts.findtext("smtp_use_tls", "1") == "1",
                 )
 
-            logger.info(f"Configuration loaded from {self.xml_file}")
+            logger.info(f"Configuration loaded from {xml_file}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to load XML configuration: {e}")
+            logger.error(f"Failed to load XML configuration from {xml_file}: {e}")
             return False
 
     def save(self) -> bool:
@@ -407,6 +447,7 @@ class ConfigManager:
             )
 
             # Write to file
+            self.xml_path.mkdir(parents=True, exist_ok=True)
             tree = StandardET.ElementTree(root)
             tree.write(self.xml_file, encoding="utf-8", xml_declaration=True)
 
@@ -424,32 +465,29 @@ class ConfigManager:
 
     def _encrypt_password(self, password: str) -> str:
         """
-        Encrypt password for storage
-        Note: In production, use proper encryption with OPNsense's methods
+        Obfuscate password for plugin-managed storage.
+
+        Values are prefixed so that plaintext passwords coming from the
+        OPNsense system configuration are never mistaken for encoded ones.
         """
-        # TODO: Implement proper encryption using OPNsense's password encryption
-        # For now, just base64 encode as a placeholder
         import base64
 
         if password:
-            return base64.b64encode(password.encode()).decode()
+            return self.B64_PREFIX + base64.b64encode(password.encode()).decode()
         return ""
 
     def _decrypt_password(self, encrypted: str) -> str:
-        """
-        Decrypt password from storage
-        Note: In production, use proper decryption with OPNsense's methods
-        """
-        # TODO: Implement proper decryption using OPNsense's password decryption
-        # For now, just base64 decode as a placeholder
+        """Reverse _encrypt_password; unprefixed values pass through unchanged"""
         import base64
 
-        if encrypted:
-            try:
-                return base64.b64decode(encrypted.encode()).decode()
-            except:
-                return encrypted
-        return ""
+        if not encrypted:
+            return ""
+        if not encrypted.startswith(self.B64_PREFIX):
+            return encrypted
+        try:
+            return base64.b64decode(encrypted[len(self.B64_PREFIX) :].encode()).decode()
+        except Exception:
+            return encrypted
 
     def add_modem(self, modem: ModemConfig) -> bool:
         """

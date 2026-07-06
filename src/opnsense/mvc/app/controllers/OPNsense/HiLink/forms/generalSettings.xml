@@ -1,0 +1,27 @@
+<form>
+    <field>
+        <id>hilink.general.enabled</id>
+        <label>Enable HiLink service</label>
+        <type>checkbox</type>
+        <help>Enable the HiLink monitoring service.</help>
+    </field>
+    <field>
+        <id>hilink.general.update_interval</id>
+        <label>Update interval</label>
+        <type>text</type>
+        <help>Dashboard refresh interval in seconds (10-300).</help>
+    </field>
+    <field>
+        <id>hilink.general.data_retention</id>
+        <label>Data retention</label>
+        <type>text</type>
+        <help>Number of days to keep historical metrics (1-365).</help>
+    </field>
+    <field>
+        <id>hilink.general.debug_logging</id>
+        <label>Debug logging</label>
+        <type>checkbox</type>
+        <advanced>true</advanced>
+        <help>Enable verbose logging for troubleshooting.</help>
+    </field>
+</form>

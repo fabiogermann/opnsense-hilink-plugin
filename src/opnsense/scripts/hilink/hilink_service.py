@@ -12,9 +12,7 @@ import logging
 import argparse
 from typing import Dict, Optional, List
 from pathlib import Path
-import daemon
-import lockfile
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Add lib directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "lib"))
@@ -56,6 +54,7 @@ class ModemManager:
         self.last_usage: Optional[DataUsage] = None
         self.reconnect_attempts = 0
         self.last_collection = datetime.now()
+        self.last_reconnect_attempt: Optional[datetime] = None
 
     async def initialize(self) -> bool:
         """Initialize modem connection"""
@@ -146,22 +145,29 @@ class ModemManager:
             return True
 
         if not self.connected:
-            # Try to reconnect
-            if self.reconnect_attempts < self.config.max_reconnect_attempts:
-                logger.info(
-                    f"Attempting to reconnect modem {self.config.name} (attempt {self.reconnect_attempts + 1})"
-                )
-                if await self.initialize():
+            now = datetime.now()
+            if self.last_reconnect_attempt is not None:
+                elapsed = (now - self.last_reconnect_attempt).total_seconds()
+                if self.reconnect_attempts >= self.config.max_reconnect_attempts:
+                    # Back off, then start a fresh round of attempts
+                    if elapsed < self.config.reconnect_interval * 5:
+                        return False
+                    logger.info(
+                        f"Retrying modem {self.config.name} after back-off period"
+                    )
                     self.reconnect_attempts = 0
-                    return True
-                else:
-                    self.reconnect_attempts += 1
+                elif elapsed < self.config.reconnect_interval:
                     return False
-            else:
-                logger.error(
-                    f"Max reconnect attempts reached for modem {self.config.name}"
-                )
-                return False
+
+            self.last_reconnect_attempt = now
+            logger.info(
+                f"Attempting to reconnect modem {self.config.name} (attempt {self.reconnect_attempts + 1})"
+            )
+            if await self.initialize():
+                self.reconnect_attempts = 0
+                return True
+            self.reconnect_attempts += 1
+            return False
 
         # Check if auto-connect is enabled and modem is disconnected
         if (
@@ -401,8 +407,10 @@ class HiLinkService:
         await self.cleanup()
         logger.info("HiLink service stopped")
 
-    async def stop(self):
+    def stop(self):
         """Stop the service"""
+        if not self.running:
+            return
         logger.info("Stopping HiLink service")
         self.running = False
 
@@ -411,23 +419,39 @@ class HiLinkService:
             task.cancel()
 
 
-def handle_signal(signum, frame):
-    """Signal handler for graceful shutdown"""
-    logger.info(f"Received signal {signum}")
-    asyncio.create_task(service.stop())
+async def run_service(service: HiLinkService):
+    """Run the service with signal handlers attached to the event loop"""
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, service.stop)
+
+    await service.run()
 
 
-async def main():
-    """Main entry point"""
+def write_pidfile(pidfile: str):
+    """Write our PID so configd actions can manage the process"""
+    try:
+        with open(pidfile, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError as e:
+        logger.warning(f"Could not write pidfile {pidfile}: {e}")
+
+
+def main():
+    """Main entry point.
+
+    The process always runs in the foreground; daemonization is handled by
+    daemon(8) from the configd action.
+    """
     parser = argparse.ArgumentParser(description="HiLink Service Daemon")
     parser.add_argument("--config", help="Configuration directory path", default=None)
     parser.add_argument(
-        "--foreground", action="store_true", help="Run in foreground (don't daemonize)"
+        "--foreground",
+        action="store_true",
+        help="Accepted for compatibility; the service always runs in the foreground",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    parser.add_argument(
-        "--pidfile", help="PID file path", default="/var/run/hilink.pid"
-    )
+    parser.add_argument("--pidfile", help="PID file path", default=None)
 
     args = parser.parse_args()
 
@@ -435,35 +459,19 @@ async def main():
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    # Create service instance
-    global service
+    if args.pidfile:
+        write_pidfile(args.pidfile)
+
     service = HiLinkService(args.config)
-
-    # Set up signal handlers
-    signal.signal(signal.SIGTERM, handle_signal)
-    signal.signal(signal.SIGINT, handle_signal)
-
-    if args.foreground:
-        # Run in foreground
-        await service.run()
-    else:
-        # Daemonize
-        context = daemon.DaemonContext(
-            working_directory="/",
-            umask=0o002,
-            pidfile=lockfile.FileLock(args.pidfile),
-            files_preserve=[
-                handler.stream.fileno()
-                for handler in logging.getLogger().handlers
-                if hasattr(handler, "stream")
-            ],
-        )
-
-        with context:
-            # Run service
-            asyncio.run(service.run())
+    try:
+        asyncio.run(run_service(service))
+    finally:
+        if args.pidfile and os.path.exists(args.pidfile):
+            try:
+                os.unlink(args.pidfile)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":
-    # Run main
-    asyncio.run(main())
+    main()

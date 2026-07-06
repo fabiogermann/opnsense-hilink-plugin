@@ -26,11 +26,6 @@
         </general>
         <modems>
             <modem type="ArrayField">
-                <uuid type="TextField">
-                    <default></default>
-                    <mask>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/</mask>
-                    <ValidationMessage>Invalid UUID format</ValidationMessage>
-                </uuid>
                 <name type="TextField">
                     <Required>Y</Required>
                     <mask>/^[a-zA-Z0-9_-]+$/</mask>
@@ -42,7 +37,7 @@
                 <ip_address type="NetworkField">
                     <Required>Y</Required>
                     <default>192.168.8.1</default>
-                    <AddressMask>32</AddressMask>
+                    <NetMaskAllowed>N</NetMaskAllowed>
                     <ValidationMessage>Please enter a valid IP address</ValidationMessage>
                 </ip_address>
                 <username type="TextField">
@@ -66,11 +61,11 @@
                 <network_mode type="OptionField">
                     <default>auto</default>
                     <OptionValues>
-                        <auto>Automatic</auto>
-                        <4g_preferred>4G Preferred</4g_preferred>
-                        <3g_preferred>3G Preferred</3g_preferred>
-                        <4g_only>4G Only</4g_only>
-                        <3g_only>3G Only</3g_only>
+                        <option value="auto">Automatic</option>
+                        <option value="4g_preferred">4G Preferred</option>
+                        <option value="3g_preferred">3G Preferred</option>
+                        <option value="4g_only">4G Only</option>
+                        <option value="3g_only">3G Only</option>
                     </OptionValues>
                 </network_mode>
                 <reconnect_interval type="IntegerField">

@@ -104,6 +104,36 @@ class HiLinkException(Exception):
 class HiLinkModem:
     """Async HiLink modem API wrapper"""
 
+    # CurrentNetworkType codes as reported by /api/monitoring/status
+    NETWORK_TYPES = {
+        0: "No Service",
+        1: "GSM",
+        2: "GPRS (2G)",
+        3: "EDGE (2G)",
+        4: "WCDMA (3G)",
+        5: "HSDPA (3G)",
+        6: "HSUPA (3G)",
+        7: "HSPA (3G)",
+        8: "TD-SCDMA (3G)",
+        9: "HSPA+ (3G)",
+        10: "EV-DO rev. 0",
+        11: "EV-DO rev. A",
+        12: "EV-DO rev. B",
+        13: "1xRTT",
+        16: "1xEV-DV",
+        17: "3xRTT",
+        18: "HSPA+ 64QAM (3G)",
+        19: "LTE (4G)",
+        41: "WCDMA (3G)",
+        44: "HSPA (3G)",
+        45: "HSPA+ (3G)",
+        46: "DC-HSPA+ (3G)",
+        64: "HSPA (3G)",
+        65: "HSPA+ (3G)",
+        101: "LTE (4G)",
+        111: "NR (5G)",
+    }
+
     # Error codes mapping
     ERROR_CODES = {
         100002: "ERROR_SYSTEM_NO_SUPPORT",
@@ -276,12 +306,17 @@ class HiLinkModem:
         """Check response for errors"""
         try:
             data = xmltodict.parse(response_text)
+        except Exception:
+            # Not XML (e.g. an HTML page) - nothing to check
+            return
+
+        try:
             if "error" in data:
                 error_code = int(data["error"].get("code", 0))
                 error_msg = self.ERROR_CODES.get(error_code, "Unknown error")
                 raise HiLinkException(f"{error_msg} (code: {error_code})", error_code)
-        except (ValueError, KeyError):
-            # Not an error response
+        except (ValueError, KeyError, TypeError):
+            # Malformed error payload - treat as non-error response
             pass
 
     async def _initialize_session(self):
@@ -361,6 +396,7 @@ class HiLinkModem:
             raise HiLinkException("Username and password required for login")
 
         # Check login state first
+        password_type = 4
         response = await self._request("GET", "/api/user/state-login")
         state_data = xmltodict.parse(response)
 
@@ -501,10 +537,20 @@ class HiLinkModem:
             connection_status = ConnectionStatus.UNKNOWN
             connected = False
 
+        # Translate the numeric CurrentNetworkType code to a readable name
+        raw_network_type = status_info.get("CurrentNetworkType", "")
+        network_type_code = self._parse_int(raw_network_type)
+        if network_type_code is not None:
+            network_type = self.NETWORK_TYPES.get(
+                network_type_code, f"Unknown ({network_type_code})"
+            )
+        else:
+            network_type = raw_network_type or "Unknown"
+
         return ModemStatus(
             connected=connected,
             connection_status=connection_status,
-            network_type=status_info.get("CurrentNetworkType", "Unknown"),
+            network_type=network_type,
             network_operator=network_info.get("FullName", "Unknown"),
             wan_ip=status_info.get("WanIPAddress"),
             sim_status=status_info.get("SimStatus", "Unknown"),
@@ -578,13 +624,18 @@ class HiLinkModem:
 
         monthly_stats = month_data.get("response", {})
 
+        session_upload = int(traffic_data.get("CurrentUpload", "0"))
+        session_download = int(traffic_data.get("CurrentDownload", "0"))
+        total_upload = int(traffic_data.get("TotalUpload", "0"))
+        total_download = int(traffic_data.get("TotalDownload", "0"))
+
         return DataUsage(
-            session_upload=int(traffic_data.get("CurrentUpload", "0")),
-            session_download=int(traffic_data.get("CurrentDownload", "0")),
-            session_total=int(traffic_data.get("CurrentConnectTime", "0")),
-            total_upload=int(traffic_data.get("TotalUpload", "0")),
-            total_download=int(traffic_data.get("TotalDownload", "0")),
-            total_total=int(traffic_data.get("TotalConnectTime", "0")),
+            session_upload=session_upload,
+            session_download=session_download,
+            session_total=session_upload + session_download,
+            total_upload=total_upload,
+            total_download=total_download,
+            total_total=total_upload + total_download,
             monthly_upload=int(monthly_stats.get("CurrentMonthUpload", "0")),
             monthly_download=int(monthly_stats.get("CurrentMonthDownload", "0")),
             monthly_total=(

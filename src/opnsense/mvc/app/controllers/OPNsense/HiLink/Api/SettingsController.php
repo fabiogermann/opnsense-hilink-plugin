@@ -1,4 +1,5 @@
 <?php
+
 /**
  * HiLink Settings Controller
  * Manages plugin configuration
@@ -7,176 +8,55 @@
 namespace OPNsense\HiLink\Api;
 
 use OPNsense\Base\ApiMutableModelControllerBase;
-use OPNsense\Base\UIModelGrid;
-use OPNsense\Core\Config;
-use OPNsense\HiLink\HiLink;
 
+/**
+ * getAction()/setAction() are inherited from ApiMutableModelControllerBase and
+ * expose the full model under the "hilink" key for standard form binding.
+ */
 class SettingsController extends ApiMutableModelControllerBase
 {
     protected static $internalModelClass = '\OPNsense\HiLink\HiLink';
     protected static $internalModelName = 'hilink';
 
     /**
-     * Get configuration
-     * @return array
-     */
-    public function getAction()
-    {
-        $result = [];
-        if ($this->request->isGet()) {
-            $model = $this->getModel();
-            
-            // Get general settings
-            $result['general'] = [
-                'enabled' => (string)$model->general->enabled,
-                'update_interval' => (string)$model->general->update_interval,
-                'data_retention' => (string)$model->general->data_retention,
-                'debug_logging' => (string)$model->general->debug_logging
-            ];
-            
-            // Get modems
-            $result['modems'] = [];
-            foreach ($model->modems->modem->iterateItems() as $uuid => $modem) {
-                $result['modems'][] = [
-                    'uuid' => $uuid,
-                    'name' => (string)$modem->name,
-                    'enabled' => (string)$modem->enabled,
-                    'ip_address' => (string)$modem->ip_address,
-                    'username' => (string)$modem->username,
-                    'auto_connect' => (string)$modem->auto_connect,
-                    'roaming_enabled' => (string)$modem->roaming_enabled,
-                    'network_mode' => (string)$modem->network_mode,
-                    'data_limit_enabled' => (string)$modem->data_limit_enabled,
-                    'data_limit_mb' => (string)$modem->data_limit_mb
-                ];
-            }
-            
-            // Get alerts
-            $result['alerts'] = [
-                'low_signal_threshold' => (string)$model->alerts->low_signal_threshold,
-                'data_limit_enabled' => (string)$model->alerts->data_limit_enabled,
-                'data_limit_mb' => (string)$model->alerts->data_limit_mb,
-                'email_alerts' => (string)$model->alerts->email_alerts,
-                'email_to' => (string)$model->alerts->email_to,
-                'smtp_server' => (string)$model->alerts->smtp_server
-            ];
-        }
-        
-        return $result;
-    }
-
-    /**
-     * Update configuration
-     * @return array
-     */
-    public function setAction()
-    {
-        $result = ['result' => 'failed'];
-        
-        if ($this->request->isPost()) {
-            $model = $this->getModel();
-            $data = $this->request->getPost();
-            
-            // Update general settings
-            if (isset($data['general'])) {
-                foreach ($data['general'] as $key => $value) {
-                    if ($model->general->$key !== null) {
-                        $model->general->$key = $value;
-                    }
-                }
-            }
-            
-            // Update alerts
-            if (isset($data['alerts'])) {
-                foreach ($data['alerts'] as $key => $value) {
-                    if ($model->alerts->$key !== null) {
-                        $model->alerts->$key = $value;
-                    }
-                }
-            }
-            
-            // Validate and save
-            $validation = $this->validateAndSave($model);
-            if ($validation['result'] === 'saved') {
-                $result = ['result' => 'saved'];
-            } else {
-                $result = ['result' => 'failed', 'validations' => $validation['validations']];
-            }
-        }
-        
-        return $result;
-    }
-
-    /**
-     * Get modem list for grid
+     * Search modems for the bootgrid
      * @return array
      */
     public function searchModemAction()
     {
-        $this->sessionClose();
-        $model = $this->getModel();
-        $grid = new UIModelGrid($model->modems->modem);
-        
-        return $grid->fetchBindRequest(
-            $this->request,
+        return $this->searchBase(
+            'modems.modem',
             ['enabled', 'name', 'ip_address', 'network_mode', 'auto_connect']
         );
     }
 
     /**
-     * Get single modem configuration
-     * @param string $uuid
+     * Get single modem configuration (or an empty template when no uuid given)
+     * @param string|null $uuid
      * @return array
      */
     public function getModemAction($uuid = null)
     {
-        $model = $this->getModel();
-        
-        if ($uuid != null) {
-            $node = $model->getNodeByReference('modems.modem.' . $uuid);
-            if ($node != null) {
-                return ['modem' => $node->getNodes()];
-            }
-        }
-        
-        // Return template for new modem
-        $node = $model->modems->modem->add();
-        return ['modem' => $node->getNodes()];
+        return $this->getBase('modem', 'modems.modem', $uuid);
     }
 
     /**
-     * Add or update modem
+     * Add new modem
+     * @return array
+     */
+    public function addModemAction()
+    {
+        return $this->addBase('modem', 'modems.modem');
+    }
+
+    /**
+     * Update modem
      * @param string $uuid
      * @return array
      */
-    public function setModemAction($uuid = null)
+    public function setModemAction($uuid)
     {
-        $result = ['result' => 'failed'];
-        
-        if ($this->request->isPost()) {
-            $model = $this->getModel();
-            
-            if ($uuid != null) {
-                $node = $model->getNodeByReference('modems.modem.' . $uuid);
-            } else {
-                $node = $model->modems->modem->add();
-                $uuid = $node->generateUUID();
-                $node->uuid = $uuid;
-            }
-            
-            if ($node != null) {
-                $node->setNodes($this->request->getPost('modem'));
-                $validation = $this->validateAndSave($model);
-                
-                if ($validation['result'] === 'saved') {
-                    $result = ['result' => 'saved', 'uuid' => $uuid];
-                } else {
-                    $result = ['result' => 'failed', 'validations' => $validation['validations']];
-                }
-            }
-        }
-        
-        return $result;
+        return $this->setBase('modem', 'modems.modem', $uuid);
     }
 
     /**
@@ -186,113 +66,40 @@ class SettingsController extends ApiMutableModelControllerBase
      */
     public function delModemAction($uuid)
     {
-        $result = ['result' => 'failed'];
-        
-        if ($this->request->isPost()) {
-            $model = $this->getModel();
-            
-            if ($uuid != null) {
-                if ($model->modems->modem->del($uuid)) {
-                    $validation = $this->validateAndSave($model);
-                    if ($validation['result'] === 'saved') {
-                        $result = ['result' => 'deleted'];
-                    }
-                }
-            }
-        }
-        
-        return $result;
+        return $this->delBase('modems.modem', $uuid);
     }
 
     /**
      * Toggle modem enabled status
      * @param string $uuid
+     * @param string|null $enabled
      * @return array
      */
-    public function toggleModemAction($uuid)
+    public function toggleModemAction($uuid, $enabled = null)
     {
-        $result = ['result' => 'failed'];
-        
-        if ($this->request->isPost() && $uuid != null) {
-            $model = $this->getModel();
-            $node = $model->getNodeByReference('modems.modem.' . $uuid);
-            
-            if ($node != null) {
-                $node->enabled = (string)$node->enabled === '1' ? '0' : '1';
-                $validation = $this->validateAndSave($model);
-                
-                if ($validation['result'] === 'saved') {
-                    $result = [
-                        'result' => 'saved',
-                        'enabled' => (string)$node->enabled === '1'
-                    ];
-                }
-            }
-        }
-        
-        return $result;
+        return $this->toggleBase('modems.modem', $uuid, $enabled);
     }
 
     /**
-     * Validate configuration
-     * @return array
-     */
-    public function validateAction()
-    {
-        $result = ['valid' => false, 'errors' => []];
-        
-        if ($this->request->isPost()) {
-            $model = $this->getModel();
-            $model->setNodes($this->request->getPost());
-            
-            $messages = $model->performValidation();
-            
-            if (count($messages) == 0) {
-                $result['valid'] = true;
-            } else {
-                foreach ($messages as $field => $message) {
-                    $result['errors'][] = [
-                        'field' => $message->getField(),
-                        'message' => $message->getMessage()
-                    ];
-                }
-            }
-        }
-        
-        return $result;
-    }
-
-    /**
-     * Export configuration
+     * Export configuration as JSON payload
      * @return array
      */
     public function exportAction()
     {
         $model = $this->getModel();
-        $config = [];
-        
-        // Export general settings
-        $config['general'] = $model->general->getNodes();
-        
-        // Export modems
-        $config['modems'] = [];
+        $config = [
+            'general' => $model->general->getNodes(),
+            'alerts' => $model->alerts->getNodes(),
+            'modems' => [],
+        ];
+
         foreach ($model->modems->modem->iterateItems() as $uuid => $modem) {
             $modemData = $modem->getNodes();
             $modemData['uuid'] = $uuid;
             $config['modems'][] = $modemData;
         }
-        
-        // Export alerts
-        $config['alerts'] = $model->alerts->getNodes();
-        
-        // Set headers for download
-        $this->response->setHeader('Content-Type', 'application/json');
-        $this->response->setHeader(
-            'Content-Disposition',
-            'attachment; filename="hilink-config-' . date('Y-m-d') . '.json"'
-        );
-        
-        return json_encode($config, JSON_PRETTY_PRINT);
+
+        return ['status' => 'ok', 'config' => $config];
     }
 
     /**
@@ -302,57 +109,46 @@ class SettingsController extends ApiMutableModelControllerBase
     public function importAction()
     {
         $result = ['result' => 'failed'];
-        
-        if ($this->request->isPost()) {
-            $data = $this->request->getPost('config');
-            
-            if (!empty($data)) {
-                try {
-                    $config = json_decode($data, true);
-                    
-                    if ($config !== null) {
-                        $model = $this->getModel();
-                        
-                        // Import general settings
-                        if (isset($config['general'])) {
-                            $model->general->setNodes($config['general']);
-                        }
-                        
-                        // Import alerts
-                        if (isset($config['alerts'])) {
-                            $model->alerts->setNodes($config['alerts']);
-                        }
-                        
-                        // Import modems (clear existing first)
-                        if (isset($config['modems'])) {
-                            // Remove existing modems
-                            foreach ($model->modems->modem->iterateItems() as $uuid => $modem) {
-                                $model->modems->modem->del($uuid);
-                            }
-                            
-                            // Add imported modems
-                            foreach ($config['modems'] as $modemConfig) {
-                                $node = $model->modems->modem->add();
-                                unset($modemConfig['uuid']); // Let system generate new UUID
-                                $node->setNodes($modemConfig);
-                            }
-                        }
-                        
-                        $validation = $this->validateAndSave($model);
-                        if ($validation['result'] === 'saved') {
-                            $result = ['result' => 'imported'];
-                        } else {
-                            $result = ['result' => 'failed', 'validations' => $validation['validations']];
-                        }
-                    } else {
-                        $result = ['result' => 'failed', 'message' => 'Invalid JSON format'];
-                    }
-                } catch (\Exception $e) {
-                    $result = ['result' => 'failed', 'message' => $e->getMessage()];
-                }
+
+        if (!$this->request->isPost()) {
+            return $result;
+        }
+
+        $data = $this->request->getPost('config');
+        if (empty($data)) {
+            return $result;
+        }
+
+        $config = is_array($data) ? $data : json_decode((string)$data, true);
+        if ($config === null) {
+            return ['result' => 'failed', 'message' => 'Invalid JSON format'];
+        }
+
+        $model = $this->getModel();
+
+        if (isset($config['general'])) {
+            $model->general->setNodes($config['general']);
+        }
+        if (isset($config['alerts'])) {
+            $model->alerts->setNodes($config['alerts']);
+        }
+        if (isset($config['modems'])) {
+            // replace existing modems with the imported set
+            foreach ($model->modems->modem->iterateItems() as $uuid => $modem) {
+                $model->modems->modem->del($uuid);
+            }
+            foreach ($config['modems'] as $modemConfig) {
+                unset($modemConfig['uuid']); // let the system generate a new UUID
+                $node = $model->modems->modem->add();
+                $node->setNodes($modemConfig);
             }
         }
-        
-        return $result;
+
+        $saved = $this->save();
+        if (!empty($saved['result']) && $saved['result'] === 'saved') {
+            return ['result' => 'imported'];
+        }
+
+        return ['result' => 'failed', 'validations' => $saved['validations'] ?? []];
     }
 }

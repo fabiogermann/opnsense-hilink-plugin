@@ -37,7 +37,7 @@ The HiLink plugin for OPNsense provides comprehensive management and monitoring 
 
 Before installing the HiLink plugin, ensure:
 
-1. **OPNsense Version**: 23.7 or later (24.1+ recommended)
+1. **OPNsense Version**: 24.7 or later (25.1+ recommended)
 2. **Modem Setup**: Your Huawei modem is connected via USB
 3. **Network Access**: Modem is accessible (default: 192.168.8.1)
 4. **Admin Access**: You have administrator privileges in OPNsense

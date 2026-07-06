@@ -1,4 +1,5 @@
 <?php
+
 /**
  * HiLink Index Controller
  * Main controller for web interface
@@ -7,7 +8,6 @@
 namespace OPNsense\HiLink;
 
 use OPNsense\Base\IndexController as BaseIndexController;
-use OPNsense\Core\Config;
 
 class IndexController extends BaseIndexController
 {
@@ -16,36 +16,19 @@ class IndexController extends BaseIndexController
      */
     public function indexAction()
     {
-        // Set page title
-        $this->view->title = "HiLink Modem Management";
-        
-        // Include required JavaScript and CSS
+        $this->view->title = gettext('HiLink Modem Management');
         $this->view->pick('OPNsense/HiLink/index');
-        
-        // Pass initial data to view
-        $this->view->formDialogModem = $this->getForm("dialogModem");
-        $this->view->formDialogSettings = $this->getForm("dialogSettings");
     }
-    
+
     /**
      * Settings page
      */
     public function settingsAction()
     {
-        $this->view->title = "HiLink Settings";
+        $this->view->title = gettext('HiLink Settings');
+        $this->view->generalForm = $this->getForm('generalSettings');
+        $this->view->alertForm = $this->getForm('alertSettings');
+        $this->view->formDialogModem = $this->getForm('dialogModem');
         $this->view->pick('OPNsense/HiLink/settings');
-        
-        // Load forms
-        $this->view->formGeneralSettings = $this->getForm("generalSettings");
-        $this->view->formAlertSettings = $this->getForm("alertSettings");
-    }
-    
-    /**
-     * Monitoring page
-     */
-    public function monitorAction()
-    {
-        $this->view->title = "HiLink Monitoring";
-        $this->view->pick('OPNsense/HiLink/monitor');
     }
 }

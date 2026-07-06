@@ -146,6 +146,7 @@ install: build
 	@mkdir -p $(OPNSENSE_SCRIPTS)/scripts/hilink
 	@cp -r $(BUILD_DIR)/opnsense/scripts/hilink/* $(OPNSENSE_SCRIPTS)/scripts/hilink/
 	@chmod +x $(OPNSENSE_SCRIPTS)/scripts/hilink/hilink_service.py
+	@chmod +x $(OPNSENSE_SCRIPTS)/scripts/hilink/hilink_control.py
 	
 	# Install MVC components
 	@echo "Installing MVC components..."
@@ -159,10 +160,10 @@ install: build
 		cp -r $(BUILD_DIR)/opnsense/service/* $(OPNSENSE_ROOT)/opnsense/service/; \
 	fi
 	
-	# Install web components
+	# Install web components (served from /ui/... by the OPNsense webserver)
 	@echo "Installing web components..."
 	@if [ -d "$(BUILD_DIR)/opnsense/www" ]; then \
-		cp -r $(BUILD_DIR)/opnsense/www/* $(OPNSENSE_WWW)/; \
+		cp -r $(BUILD_DIR)/opnsense/www/* $(OPNSENSE_SCRIPTS)/www/; \
 	fi
 	
 	# Create required directories
@@ -257,7 +258,6 @@ check-deps:
 	@$(PYTHON) -c "import aiohttp" 2>/dev/null || echo "$(RED)✗ aiohttp not installed$(NC)"
 	@$(PYTHON) -c "import xmltodict" 2>/dev/null || echo "$(RED)✗ xmltodict not installed$(NC)"
 	@$(PYTHON) -c "import bs4" 2>/dev/null || echo "$(RED)✗ beautifulsoup4 not installed$(NC)"
-	@$(PYTHON) -c "import daemon" 2>/dev/null || echo "$(RED)✗ python-daemon not installed$(NC)"
 	@$(PYTHON) -c "import rrdtool" 2>/dev/null || echo "$(RED)✗ rrdtool not installed$(NC)"
 	@echo "$(GREEN)✓ Dependency check complete$(NC)"
 
