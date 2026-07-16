@@ -59,40 +59,58 @@ PKGFILE="$ROOT/$OUTDIR/os-hilink-$VERSION.pkg"
 
 # --- Fix the stamped ABI for cross-builds -------------------------------------
 python3 - "$PKGFILE" "$TARGET_ABI" <<'PY'
-import json, sys, tarfile, io
+import json, sys, tarfile, io, traceback
 pkgpath, target_abi = sys.argv[1], sys.argv[2]
 try:
     import zstandard as zstd
-except ImportError:
-    print("zstandard module not available; skipping ABI fix (native build)")
+    print("[abi-fix] zstandard imported OK (v%s)" % getattr(zstd, "__version__", "?"))
+except ImportError as e:
+    print("[abi-fix] zstandard NOT importable: %s — skipping" % e)
     sys.exit(0)
-data = open(pkgpath, "rb").read()
-raw = zstd.ZstdDecompressor().stream_reader(io.BytesIO(data)).read()
-tf = tarfile.open(fileobj=io.BytesIO(raw))
 try:
-    man = json.loads(tf.extractfile("+MANIFEST").read().decode())
-except (KeyError, TypeError):
-    print("no +MANIFEST in package; skipping ABI fix")
+    data = open(pkgpath, "rb").read()
+    print("[abi-fix] read %d bytes from %s" % (len(data), pkgpath))
+    # robust streaming decompress (single .read() may be partial on some versions)
+    reader = zstd.ZstdDecompressor().stream_reader(io.BytesIO(data))
+    chunks = []
+    while True:
+        c = reader.read(65536)
+        if not c:
+            break
+        chunks.append(c)
+    raw = b"".join(chunks)
+    print("[abi-fix] decompressed to %d bytes" % len(raw))
+    tf = tarfile.open(fileobj=io.BytesIO(raw))
+    print("[abi-fix] members: %s" % tf.getnames()[:6])
+    mf = tf.extractfile("+MANIFEST")
+    if mf is None:
+        print("[abi-fix] +MANIFEST not found by exact name; skipping")
+        sys.exit(0)
+    man = json.loads(mf.read().decode())
+    stamped = man.get("abi", "")
+    print("[abi-fix] stamped abi: %s" % stamped)
+    if stamped == target_abi:
+        print("[abi-fix] already correct, skipping")
+        sys.exit(0)
+    man["abi"] = target_abi
+    man["arch"] = target_abi
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w") as ntf:
+        payload = json.dumps(man, separators=(",", ":")).encode()
+        info = tarfile.TarInfo("+MANIFEST")
+        info.size = len(payload)
+        ntf.addfile(info, io.BytesIO(payload))
+        for ti in tf.getmembers():
+            if ti.name == "+MANIFEST":
+                continue
+            ntf.addfile(ti, tf.extractfile(ti))  # None for dirs/symlinks is fine
+    packed = zstd.ZstdCompressor(level=19).compress(out.getvalue())
+    open(pkgpath, "wb").write(packed)
+    print("[abi-fix] rewrote abi: %s -> %s (%d bytes)" % (stamped, target_abi, len(packed)))
+except Exception:
+    traceback.print_exc()
+    print("[abi-fix] ERROR — leaving package as-is")
     sys.exit(0)
-stamped = man.get("abi", "")
-if stamped == target_abi:
-    print("package abi already correct (%s)" % stamped)
-    sys.exit(0)
-man["abi"] = target_abi
-man["arch"] = target_abi
-out = io.BytesIO()
-with tarfile.open(fileobj=out, mode="w") as ntf:
-    payload = json.dumps(man, separators=(",", ":")).encode()
-    info = tarfile.TarInfo("+MANIFEST")
-    info.size = len(payload)
-    ntf.addfile(info, io.BytesIO(payload))
-    for ti in tf.getmembers():
-        if ti.name == "+MANIFEST":
-            continue
-        ntf.addfile(ti, tf.extractfile(ti))  # None for dirs/symlinks is fine
-packed = zstd.ZstdCompressor(level=19).compress(out.getvalue())
-open(pkgpath, "wb").write(packed)
-print("rewrote package abi: %s -> %s" % (stamped, target_abi))
 PY
 
 echo "created:"
