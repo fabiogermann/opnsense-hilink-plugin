@@ -110,24 +110,8 @@ format:
 .PHONY: package
 package: build
 	@echo "$(YELLOW)Creating package...$(NC)"
-	@mkdir -p $(DIST_DIR)
-	
-	# Create package structure
-	@mkdir -p $(DIST_DIR)/$(PLUGIN_NAME)-$(VERSION)
-	@cp -r $(BUILD_DIR)/* $(DIST_DIR)/$(PLUGIN_NAME)-$(VERSION)/
-	@cp -r pkg $(DIST_DIR)/$(PLUGIN_NAME)-$(VERSION)/
-	
-	# Create tarball
-	@cd $(DIST_DIR) && \
-		tar -czf $(PLUGIN_NAME)-$(VERSION).txz \
-		--exclude='*.pyc' \
-		--exclude='__pycache__' \
-		$(PLUGIN_NAME)-$(VERSION)
-	
-	# Clean up temporary directory
-	@rm -rf $(DIST_DIR)/$(PLUGIN_NAME)-$(VERSION)
-	
-	@echo "$(GREEN)✓ Package created: $(DIST_DIR)/$(PLUGIN_NAME)-$(VERSION).txz$(NC)"
+	@./tools/build_pkg.sh $(VERSION) $(DIST_DIR)
+	@echo "$(GREEN)✓ Package created: $(DIST_DIR)/$(PLUGIN_NAME)-$(VERSION).pkg$(NC)"
 
 # Install target (requires root)
 .PHONY: install
