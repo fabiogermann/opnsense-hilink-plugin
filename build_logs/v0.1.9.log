@@ -1,0 +1,36 @@
+=== build_pkg.log ===
+[0;33mCleaning build artifacts...[0m 
+[0;32m✓ Clean complete[0m 
+[0;33mBuilding os-hilink...[0m 
+# Compile Python files
+Compiling Python modules...
+# Copy source files to build directory
+Copying source files...
+# Remove Python cache files
+[0;32m✓ Build complete[0m 
+[0;33mBuilding os-hilink...[0m 
+# Compile Python files
+Compiling Python modules...
+# Copy source files to build directory
+Copying source files...
+# Remove Python cache files
+[0;32m✓ Build complete[0m 
+[0;33mCreating package...[0m 
+pkg: Invalid package: object has missing property prefix
+pkg: the package is not valid
+pkg: package creation failed
+make: *** [Makefile:113: package] Error 1
+
+=== dist/ contents ===
+total 12
+drwxr-xr-x  2 runner runner 4096 Jul 16 21:59 .
+drwxr-xr-x 11 runner runner 4096 Jul 16 21:59 ..
+-rw-r--r--  1 runner runner   17 Jul 16 21:59 os-hilink-0.1.9.pkg
+
+=== pkg binary ===
+/usr/local/sbin/pkg
+2.7.5-a3183b5
+
+=== manual checksums attempt ===
+484c25d02516adc3d2ba5bdd53fa1aab5805ad4d8ad9e46b28535582b2fc42f6  os-hilink-0.1.9.pkg
+exit=0
