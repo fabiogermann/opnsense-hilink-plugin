@@ -73,21 +73,10 @@ jobs:
         sudo make install
     
     - name: Build package
-      id: buildpkg
       run: |
         make clean
         make build
-        make package VERSION=${{ env.VERSION }} 2>&1 | tee /tmp/build_pkg.log
-    
-    - name: Debug — save build log
-      if: always()
-      run: |
-        cp /tmp/build_pkg.log build_pkg_v${{ env.VERSION }}.log
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add build_pkg_v${{ env.VERSION }}.log
-        git commit -m "ci-debug: build_pkg.log for v${{ env.VERSION }}"
-        git push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:ci-debug --force
+        make package VERSION=${{ env.VERSION }}
     
     - name: Generate checksums
       run: |

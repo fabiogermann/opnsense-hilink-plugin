@@ -58,39 +58,27 @@ pkg create -M "$META/+MANIFEST" -p "$META/pkg-plist" -r "$STAGE" \
 PKGFILE="$ROOT/$OUTDIR/os-hilink-$VERSION.pkg"
 
 # --- Fix the stamped ABI for cross-builds -------------------------------------
+# pkg create stamps the host ABI (e.g. linux:3.2:x86_64 on a Linux runner).
+# Rewrite abi+arch to the target FreeBSD ABI so the package installs on
+# OPNsense.  Non-fatal: on any error the package is left as-is and the build
+# continues (native FreeBSD builds already have the correct ABI).
 python3 - "$PKGFILE" "$TARGET_ABI" <<'PY'
-import json, sys, tarfile, io, traceback
+import json, sys, tarfile, io
 pkgpath, target_abi = sys.argv[1], sys.argv[2]
 try:
     import zstandard as zstd
-    print("[abi-fix] zstandard imported OK (v%s)" % getattr(zstd, "__version__", "?"))
-except ImportError as e:
-    print("[abi-fix] zstandard NOT importable: %s — skipping" % e)
-    sys.exit(0)
+except ImportError:
+    sys.exit(0)  # native build or zstandard unavailable
 try:
     data = open(pkgpath, "rb").read()
-    print("[abi-fix] read %d bytes from %s" % (len(data), pkgpath))
-    # robust streaming decompress (single .read() may be partial on some versions)
     reader = zstd.ZstdDecompressor().stream_reader(io.BytesIO(data))
-    chunks = []
-    while True:
-        c = reader.read(65536)
-        if not c:
-            break
-        chunks.append(c)
-    raw = b"".join(chunks)
-    print("[abi-fix] decompressed to %d bytes" % len(raw))
+    raw = b"".join(iter(lambda: reader.read(65536), b""))
     tf = tarfile.open(fileobj=io.BytesIO(raw))
-    print("[abi-fix] members: %s" % tf.getnames()[:6])
     mf = tf.extractfile("+MANIFEST")
     if mf is None:
-        print("[abi-fix] +MANIFEST not found by exact name; skipping")
         sys.exit(0)
     man = json.loads(mf.read().decode())
-    stamped = man.get("abi", "")
-    print("[abi-fix] stamped abi: %s" % stamped)
-    if stamped == target_abi:
-        print("[abi-fix] already correct, skipping")
+    if man.get("abi", "") == target_abi:
         sys.exit(0)
     man["abi"] = target_abi
     man["arch"] = target_abi
@@ -104,13 +92,10 @@ try:
             if ti.name == "+MANIFEST":
                 continue
             ntf.addfile(ti, tf.extractfile(ti))  # None for dirs/symlinks is fine
-    packed = zstd.ZstdCompressor(level=19).compress(out.getvalue())
-    open(pkgpath, "wb").write(packed)
-    print("[abi-fix] rewrote abi: %s -> %s (%d bytes)" % (stamped, target_abi, len(packed)))
+    open(pkgpath, "wb").write(zstd.ZstdCompressor(level=19).compress(out.getvalue()))
+    print("rewrote package abi -> %s" % target_abi)
 except Exception:
-    traceback.print_exc()
-    print("[abi-fix] ERROR — leaving package as-is")
-    sys.exit(0)
+    pass  # leave package as-is
 PY
 
 echo "created:"
