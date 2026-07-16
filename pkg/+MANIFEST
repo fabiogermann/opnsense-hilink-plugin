@@ -4,7 +4,6 @@ origin: opnsense/os-hilink
 comment: HiLink modem management plugin for OPNsense
 maintainer: hilink-plugin@example.com
 www: https://github.com/fabiogermann/opnsense-hilink-plugin
-prefix: /usr/local
 licenselogic: single
 licenses: [MIT]
 categories: [net-mgmt, www]
