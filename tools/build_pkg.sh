@@ -49,8 +49,10 @@ chmod 755 "$STAGE/usr/local/opnsense/scripts/hilink/hilink_service.py" \
 # Inject the release version into the manifest (top-level version key only)
 sed "s|^version: .*|version: \"$VERSION\"|" "$ROOT/pkg/+MANIFEST" > "$META/+MANIFEST"
 
-# File list from the staged tree
-(cd "$STAGE" && find . -type f | sed 's|^\./||' | sort) > "$META/pkg-plist"
+# File list from the staged tree, relative to the install prefix (/usr/local).
+# pkg create reads each file at <root> + <prefix> + <plist entry>, so the plist
+# must be relative to the prefix (opnsense/...), not to the staging root.
+(cd "$STAGE/usr/local" && find . -type f | sed 's|^\./||' | sort) > "$META/pkg-plist"
 
 pkg create -M "$META/+MANIFEST" -p "$META/pkg-plist" -r "$STAGE" \
     -o "$ROOT/$OUTDIR"
