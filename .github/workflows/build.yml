@@ -80,16 +80,29 @@ jobs:
       run: |
         { make clean; make build; make package VERSION=${{ env.VERSION }}; } 2>&1 | tee /tmp/build_pkg.log
     
-    - name: Debug — save build log
+    - name: Debug — save build log via API
       if: always()
       continue-on-error: true
       run: |
-        cp /tmp/build_pkg.log build_pkg_v${{ env.VERSION }}.log 2>/dev/null || echo "no log" > build_pkg_v${{ env.VERSION }}.log
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add build_pkg_v${{ env.VERSION }}.log
-        git commit -m "ci-debug: build_pkg.log for v${{ env.VERSION }}"
-        git push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:ci-debug --force
+        {
+          echo "=== build_pkg.log ==="
+          cat /tmp/build_pkg.log 2>/dev/null || echo "(no build log)"
+          echo ""
+          echo "=== dist/ contents ==="
+          ls -la dist/ 2>/dev/null || echo "(no dist dir)"
+          echo ""
+          echo "=== pkg binary ==="
+          command -v pkg && pkg -v 2>&1 || echo "pkg not found"
+          echo ""
+          echo "=== manual checksums attempt ==="
+          ( cd dist 2>/dev/null && sha256sum *.pkg 2>&1; echo "exit=$?" ) || echo "cd dist failed"
+        } > /tmp/debug.log
+        B64=$(base64 -w0 < /tmp/debug.log)
+        curl -s -X PUT \
+          -H "Authorization: Bearer ${{ github.token }}" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/${{ github.repository }}/contents/build_logs/v${{ env.VERSION }}.log" \
+          -d "{\"message\":\"ci-debug: log for v${{ env.VERSION }}\",\"content\":\"$B64\"}"
     
     - name: Generate checksums
       run: |
