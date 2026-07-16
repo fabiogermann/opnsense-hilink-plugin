@@ -131,6 +131,63 @@ class TestHiLinkModem:
             assert status.network_operator == "Test Carrier"
     
     @pytest.mark.asyncio
+    async def test_get_settings(self, modem):
+        """Test reading current settings from the modem (wizard import)"""
+        mock_response_netmode = """
+        <response>
+            <NetworkMode>030201</NetworkMode>
+            <NetworkBand>3FFFFFFF</NetworkBand>
+            <LTEBand>7FFFFFFFFFFFFFFF</LTEBand>
+        </response>
+        """
+
+        mock_response_connection = """
+        <response>
+            <RoamAutoConnectEnable>1</RoamAutoConnectEnable>
+            <MaxIdelTime>3600</MaxIdelTime>
+            <ConnectMode>0</ConnectMode>
+            <MTU>1500</MTU>
+        </response>
+        """
+
+        mock_response_device = """
+        <response>
+            <DeviceName>E3372h-320</DeviceName>
+        </response>
+        """
+
+        with patch.object(modem, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.side_effect = [
+                mock_response_netmode,
+                mock_response_connection,
+                mock_response_device
+            ]
+
+            settings = await modem.get_settings()
+
+            assert settings["network_mode"] == "4g_preferred"
+            assert settings["roaming_enabled"] is True
+            assert settings["max_idle_time"] == 3600
+            assert settings["auto_connect"] is True
+            assert settings["device_name"] == "E3372h-320"
+
+    @pytest.mark.asyncio
+    async def test_get_settings_unknown_mode(self, modem):
+        """Unknown NetworkMode codes fall back to auto"""
+        responses = [
+            "<response><NetworkMode>99</NetworkMode></response>",
+            "<response><RoamAutoConnectEnable>0</RoamAutoConnectEnable></response>",
+            "<response><DeviceName>X</DeviceName></response>",
+        ]
+        with patch.object(modem, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.side_effect = responses
+
+            settings = await modem.get_settings()
+
+            assert settings["network_mode"] == "auto"
+            assert settings["roaming_enabled"] is False
+
+    @pytest.mark.asyncio
     async def test_get_signal_info(self, modem):
         """Test getting signal information"""
         mock_response = """

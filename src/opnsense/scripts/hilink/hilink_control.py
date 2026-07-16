@@ -8,6 +8,7 @@ One-shot commands invoked by configd (see actions_hilink.conf):
     hilink_control.py connect <uuid>      connect the mobile data session
     hilink_control.py disconnect <uuid>   disconnect the mobile data session
     hilink_control.py reboot <uuid>       reboot the modem
+    hilink_control.py probe <uuid>        read current settings from the modem
     hilink_control.py test                validate configuration and reachability
 """
 
@@ -91,6 +92,20 @@ async def run_command(modem_config: ModemConfig, command: str) -> dict:
     return {"status": "ok" if ok else "error", "command": command}
 
 
+async def probe_settings(modem_config: ModemConfig) -> dict:
+    """Read the modem's current settings without changing anything"""
+    modem = HiLinkModem(
+        host=modem_config.ip_address,
+        username=modem_config.username,
+        password=modem_config.password,
+        name=modem_config.name,
+    )
+    async with modem:
+        settings = await modem.get_settings()
+
+    return {"status": "ok", "uuid": modem_config.uuid, "settings": settings}
+
+
 async def run_test(config_path) -> dict:
     """Validate the configuration and probe each enabled modem"""
     config = ConfigManager(config_path)
@@ -123,7 +138,15 @@ def main():
     parser = argparse.ArgumentParser(description="HiLink modem control")
     parser.add_argument(
         "command",
-        choices=["status", "metrics", "connect", "disconnect", "reboot", "test"],
+        choices=[
+            "status",
+            "metrics",
+            "connect",
+            "disconnect",
+            "reboot",
+            "probe",
+            "test",
+        ],
     )
     parser.add_argument("uuid", nargs="?", help="Modem UUID")
     parser.add_argument("--config", help="Configuration directory path", default=None)
@@ -150,6 +173,8 @@ def main():
     try:
         if args.command == "status":
             output(asyncio.run(get_status(modem_config)))
+        elif args.command == "probe":
+            output(asyncio.run(probe_settings(modem_config)))
         else:
             output(asyncio.run(run_command(modem_config, args.command)))
     except Exception as e:

@@ -23,6 +23,9 @@
             <debug_logging type="BooleanField">
                 <default>0</default>
             </debug_logging>
+            <wizard_completed type="BooleanField">
+                <default>0</default>
+            </wizard_completed>
         </general>
         <modems>
             <modem type="ArrayField">
