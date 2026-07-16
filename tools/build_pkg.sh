@@ -7,12 +7,17 @@
 #
 # When building on a non-FreeBSD host (e.g. an Ubuntu CI runner), pkg create
 # stamps the host ABI (linux:3.2:x86_64) into the manifest, producing a
-# package that won't install on OPNsense.  After creating the package we
-# rewrite abi+arch to the target FreeBSD ABI so it installs on the intended
-# OS.  Override the target with TARGET_ABI, e.g.:
+# package that won't install on OPNsense ("wrong architecture").  After
+# creating the package we rewrite abi+arch to the target FreeBSD ABI so it
+# installs on the intended OS.  Override the target with TARGET_ABI, e.g.:
 #     TARGET_ABI=freebsd:14:amd64 make package
 # The default freebsd:*:* wildcard matches any FreeBSD version/arch, which is
 # correct for a pure-Python/PHP plugin with no compiled objects.
+#
+# The ABI rewrite is done in Python (via the zstandard module) so it works
+# the same on Linux and FreeBSD without depending on a tar+zstd CLI.  If
+# zstandard is not importable (e.g. a native FreeBSD build that already has
+# the correct ABI), the step is skipped.
 #
 # Usage: tools/build_pkg.sh <version> [output-dir]
 
@@ -53,30 +58,42 @@ pkg create -M "$META/+MANIFEST" -p "$META/pkg-plist" -r "$STAGE" \
 PKGFILE="$ROOT/$OUTDIR/os-hilink-$VERSION.pkg"
 
 # --- Fix the stamped ABI for cross-builds -------------------------------------
-# pkg create writes the host's abi/arch into the manifest.  When that differs
-# from the target (e.g. building on Linux for FreeBSD), rewrite it.  Requires
-# tar with zstd support (FreeBSD bsdtar, or GNU tar + the zstd binary).
-STAMPED="$(tar --zstd -xOf "$PKGFILE" +MANIFEST 2>/dev/null \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("abi",""))' \
-    2>/dev/null || true)"
-if [ -n "$STAMPED" ] && [ "$STAMPED" != "$TARGET_ABI" ]; then
-    tmp="$(mktemp -d)"
-    tar --zstd -xf "$PKGFILE" -C "$tmp"
-    python3 - "$tmp/+MANIFEST" "$TARGET_ABI" <<'PY'
-import json, sys
-path, abi = sys.argv[1], sys.argv[2]
-m = json.load(open(path))
-m["abi"] = abi
-m["arch"] = abi
-with open(path, "w") as f:
-    json.dump(m, f, separators=(",", ":"))
+python3 - "$PKGFILE" "$TARGET_ABI" <<'PY'
+import json, sys, tarfile, io
+pkgpath, target_abi = sys.argv[1], sys.argv[2]
+try:
+    import zstandard as zstd
+except ImportError:
+    print("zstandard module not available; skipping ABI fix (native build)")
+    sys.exit(0)
+data = open(pkgpath, "rb").read()
+raw = zstd.ZstdDecompressor().stream_reader(io.BytesIO(data)).read()
+tf = tarfile.open(fileobj=io.BytesIO(raw))
+try:
+    man = json.loads(tf.extractfile("+MANIFEST").read().decode())
+except (KeyError, TypeError):
+    print("no +MANIFEST in package; skipping ABI fix")
+    sys.exit(0)
+stamped = man.get("abi", "")
+if stamped == target_abi:
+    print("package abi already correct (%s)" % stamped)
+    sys.exit(0)
+man["abi"] = target_abi
+man["arch"] = target_abi
+out = io.BytesIO()
+with tarfile.open(fileobj=out, mode="w") as ntf:
+    payload = json.dumps(man, separators=(",", ":")).encode()
+    info = tarfile.TarInfo("+MANIFEST")
+    info.size = len(payload)
+    ntf.addfile(info, io.BytesIO(payload))
+    for ti in tf.getmembers():
+        if ti.name == "+MANIFEST":
+            continue
+        ntf.addfile(ti, tf.extractfile(ti))  # None for dirs/symlinks is fine
+packed = zstd.ZstdCompressor(level=19).compress(out.getvalue())
+open(pkgpath, "wb").write(packed)
+print("rewrote package abi: %s -> %s" % (stamped, target_abi))
 PY
-    tar --zstd -cf "$PKGFILE" -C "$tmp" .
-    rm -rf "$tmp"
-    echo "rewrote package abi: $STAMPED -> $TARGET_ABI"
-else
-    echo "package abi already correct ($STAMPED)"
-fi
 
 echo "created:"
 ls -l "$PKGFILE"
