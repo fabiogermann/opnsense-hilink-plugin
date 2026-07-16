@@ -99,6 +99,31 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * Read the current settings from a configured modem without changing it.
+     * Used by the first-use wizard to import existing modem settings.
+     * @param string|null $uuid modem uuid
+     * @return array
+     */
+    public function probeAction($uuid = null)
+    {
+        if (!$this->request->isPost() || empty($uuid)) {
+            return ['status' => 'error', 'message' => 'Invalid request'];
+        }
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $uuid)) {
+            return ['status' => 'error', 'message' => 'Invalid modem UUID'];
+        }
+
+        $this->sessionClose();
+        $backend = new Backend();
+        $response = trim((string)$backend->configdpRun('hilink probe', [$uuid]));
+        $data = json_decode($response, true);
+        if (!is_array($data)) {
+            return ['status' => 'error', 'message' => 'No response from modem probe'];
+        }
+        return $data;
+    }
+
+    /**
      * Check if service is enabled
      * @return bool
      */

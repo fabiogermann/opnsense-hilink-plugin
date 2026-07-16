@@ -3,31 +3,32 @@ version: 1.0.0
 origin: opnsense/os-hilink
 comment: HiLink modem management plugin for OPNsense
 maintainer: hilink-plugin@example.com
-www: https://github.com/yourusername/opnsense-hilink
+www: https://github.com/fabiogermann/opnsense-hilink-plugin
 prefix: /usr/local
 licenselogic: single
 licenses: [MIT]
 categories: [net-mgmt, www]
 arch: freebsd:*:*
-desc: |
-  HiLink Plugin for OPNsense
-  
-  This plugin provides comprehensive management and monitoring capabilities
-  for Huawei HiLink-based 4G/LTE USB modems in OPNsense firewalls.
-  
-  Features:
-  - Real-time modem monitoring (signal strength, data usage, connection status)
-  - Auto-connect/disconnect management
-  - Roaming configuration
-  - Network mode selection (4G/3G/2G)
-  - Data usage tracking and alerts
-  - Historical metrics with configurable retention
-  - Web-based dashboard with real-time updates
-  
-  Supported devices:
-  - Huawei E3372s series (including E3372s-153)
-  - Huawei E3372h series (E3372h-320, E3372h-153)
-  - Huawei E8372h series (planned)
+desc: <<EOD
+HiLink Plugin for OPNsense
+
+This plugin provides comprehensive management and monitoring capabilities
+for Huawei HiLink-based 4G/LTE USB modems in OPNsense firewalls.
+
+Features:
+- Real-time modem monitoring (signal strength, data usage, connection status)
+- Auto-connect/disconnect management
+- Roaming configuration
+- Network mode selection (4G/3G/2G)
+- Data usage tracking and alerts
+- Historical metrics with configurable retention
+- Web-based dashboard with real-time updates
+
+Supported devices:
+- Huawei E3372s series (including E3372s-153)
+- Huawei E3372h series (E3372h-320, E3372h-153)
+- Huawei E8372h series (planned)
+EOD
 deps: {
   python311: {origin: lang/python311, version: "3.11"},
   py311-aiohttp: {origin: www/py-aiohttp, version: "3.9"},
@@ -70,7 +71,7 @@ EOD
     echo "3. Start the service"
     echo ""
     echo "For documentation, visit:"
-    echo "https://github.com/yourusername/opnsense-hilink"
+    echo "https://github.com/fabiogermann/opnsense-hilink-plugin"
     echo ""
 EOD
   pre-deinstall: <<EOD

@@ -314,10 +314,11 @@ class TestConfigManager:
     
     def test_validate(self, config_manager):
         """Test configuration validation"""
-        # Valid configuration
+        # Valid configuration: an empty modem list is allowed so the
+        # service can idle until the first-use wizard adds a modem
         errors = config_manager.validate()
-        assert len(errors) == 1  # No modems configured
-        
+        assert len(errors) == 0
+
         # Add valid modem
         modem = ModemConfig(name="Test Modem")
         config_manager.add_modem(modem)
@@ -393,12 +394,11 @@ class TestConfigManager:
         assert decrypted == ""
     
     def test_create_default_config(self, config_manager):
-        """Test creating default configuration"""
+        """Default configuration must not fabricate a modem entry, so the
+        first-use wizard decides how an existing modem is set up"""
         config_manager._create_default_config()
-        
-        assert len(config_manager.modems) == 1
-        assert config_manager.modems[0].name == "HiLink Modem"
-        assert config_manager.modems[0].ip_address == "192.168.8.1"
+
+        assert config_manager.modems == []
     
     def test_save_and_load_cycle(self, config_manager):
         """Test complete save and load cycle"""

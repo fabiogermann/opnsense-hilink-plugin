@@ -459,9 +459,14 @@ class ConfigManager:
             return False
 
     def _create_default_config(self):
-        """Create default configuration"""
-        # Add a default modem
-        self.modems = [ModemConfig()]
+        """Create default configuration.
+
+        Intentionally contains no modem: the first-use wizard decides whether
+        to import settings from an already connected modem or start with
+        defaults, so the service must not fabricate a modem entry and push
+        default settings onto a device the user has not configured yet.
+        """
+        self.modems = []
 
     def _encrypt_password(self, password: str) -> str:
         """
@@ -585,10 +590,8 @@ class ConfigManager:
         if self.general.data_retention < 1 or self.general.data_retention > 365:
             errors.append("Data retention must be between 1 and 365 days")
 
-        # Validate modems
-        if not self.modems:
-            errors.append("At least one modem must be configured")
-
+        # An empty modem list is valid: the service idles until the
+        # first-use wizard (or the settings page) adds a modem.
         for modem in self.modems:
             # Validate IP address format
             import ipaddress

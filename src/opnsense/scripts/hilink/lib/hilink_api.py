@@ -747,6 +747,49 @@ class HiLinkModem:
             logger.error(f"Failed to set roaming: {e}")
             return False
 
+    # Reverse mapping of modem NetworkMode codes to plugin network_mode values
+    NETWORK_MODE_TO_CONFIG = {
+        NetworkMode.AUTO.value: "auto",
+        NetworkMode.LTE_ONLY.value: "4g_only",
+        NetworkMode.WCDMA_ONLY.value: "3g_only",
+        NetworkMode.LTE_WCDMA_GSM.value: "4g_preferred",
+        NetworkMode.LTE_WCDMA.value: "4g_preferred",
+        NetworkMode.LTE_GSM.value: "4g_preferred",
+        NetworkMode.WCDMA_GSM.value: "3g_preferred",
+    }
+
+    async def get_settings(self) -> Dict[str, Any]:
+        """Read the current device settings without modifying anything.
+
+        Returns the settings this plugin manages, keyed by their
+        ModemConfig field names, so they can be imported directly.
+        """
+        settings: Dict[str, Any] = {}
+
+        response = await self._request("GET", "/api/net/net-mode")
+        data = xmltodict.parse(response)
+        if "response" in data and data["response"]:
+            mode = str(data["response"].get("NetworkMode", "00"))
+            settings["network_mode"] = self.NETWORK_MODE_TO_CONFIG.get(mode, "auto")
+
+        response = await self._request("GET", "/api/dialup/connection")
+        data = xmltodict.parse(response)
+        if "response" in data and data["response"]:
+            conn = data["response"]
+            settings["roaming_enabled"] = (
+                str(conn.get("RoamAutoConnectEnable", "0")) == "1"
+            )
+            settings["max_idle_time"] = self._parse_int(conn.get("MaxIdelTime")) or 0
+            # ConnectMode 0 means the modem dials automatically
+            settings["auto_connect"] = str(conn.get("ConnectMode", "0")) == "0"
+
+        response = await self._request("GET", "/api/device/information")
+        data = xmltodict.parse(response)
+        if "response" in data and data["response"]:
+            settings["device_name"] = data["response"].get("DeviceName", "")
+
+        return settings
+
     def _parse_int(self, value: Any) -> Optional[int]:
         """Safely parse integer value"""
         if value is None:

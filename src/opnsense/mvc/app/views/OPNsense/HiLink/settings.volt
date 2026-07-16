@@ -23,6 +23,179 @@
             toggle: '/api/hilink/settings/toggleModem/'
         });
 
+        /**
+         * First-use wizard
+         * Shown once when the wizard has never been completed and no modems
+         * are configured. Lets the user import the modem's current settings
+         * (live via API or from a nvram.bak backup) instead of overwriting
+         * them with plugin defaults.
+         */
+        function wizardMarkDone(callback) {
+            ajaxCall("/api/hilink/settings/set", {'hilink': {'general': {'wizard_completed': '1'}}}, function() {
+                if (callback !== undefined) {
+                    callback();
+                }
+            });
+        }
+
+        function wizardSetStatus(message, level) {
+            $("#wizard_status")
+                .removeClass("alert-info alert-warning alert-danger")
+                .addClass("alert-" + (level || "info"))
+                .text(message)
+                .show();
+        }
+
+        /**
+         * Parse a HiLink nvram.bak backup: every line is base64 encoded,
+         * the decoded stream contains NV items and embedded XML config
+         * files. Only the dialup settings the plugin manages are extracted.
+         */
+        function parseNvramBackup(text) {
+            var fields = {};
+            text.split(/\r?\n/).forEach(function(line) {
+                line = line.trim();
+                if (line === '') {
+                    return;
+                }
+                var decoded;
+                try {
+                    decoded = atob(line);
+                } catch (e) {
+                    return; // not base64, skip
+                }
+                var match;
+                if ((match = decoded.match(/<roam_connect>([01])<\/roam_connect>/))) {
+                    fields.roaming_enabled = match[1];
+                }
+                if ((match = decoded.match(/<max_idle_time>(\d+)<\/max_idle_time>/))) {
+                    fields.max_idle_time = match[1];
+                }
+                if ((match = decoded.match(/<dataswitch>([01])<\/dataswitch>/))) {
+                    fields.auto_connect = match[1];
+                }
+            });
+            return fields;
+        }
+
+        function wizardFinalize(uuid, fields, keepOpen) {
+            fields.enabled = '1';
+            ajaxCall("/api/hilink/settings/setModem/" + uuid, {'modem': fields}, function() {
+                wizardMarkDone(function() {
+                    ajaxCall("/api/hilink/service/reconfigure", {}, function() {
+                        $("#grid-modems").bootgrid('reload');
+                        updateServiceControlUI('hilink');
+                        if (keepOpen) {
+                            // leave the modal open so the warning stays readable
+                            $("#wizard_finish").prop('disabled', true);
+                            $("#wizard_skip").text("{{ lang._('Close') }}");
+                        } else {
+                            $("#HiLinkWizard").modal('hide');
+                        }
+                    });
+                });
+            });
+        }
+
+        $("input[name=wizard_mode]").change(function() {
+            $("#wizard_nvram_group").toggle($("input[name=wizard_mode]:checked").val() === 'nvram');
+        });
+
+        $("#wizard_skip").click(function() {
+            wizardMarkDone(function() {
+                $("#HiLinkWizard").modal('hide');
+            });
+        });
+
+        $("#wizard_finish").click(function() {
+            var mode = $("input[name=wizard_mode]:checked").val();
+            var nvramFile = $("#wizard_nvram_file")[0].files[0];
+            if (mode === 'nvram' && nvramFile === undefined) {
+                wizardSetStatus("{{ lang._('Please select a nvram.bak file first.') }}", 'warning');
+                return;
+            }
+            // keep the modem disabled until its settings are final so the
+            // service never pushes defaults onto the device
+            var modem = {
+                'name': $("#wizard_name").val(),
+                'ip_address': $("#wizard_ip").val(),
+                'username': $("#wizard_username").val(),
+                'password': $("#wizard_password").val(),
+                'enabled': '0'
+            };
+            ajaxCall("/api/hilink/settings/addModem/", {'modem': modem}, function(data) {
+                if (!data || data.result !== 'saved') {
+                    var messages = [];
+                    if (data && data.validations) {
+                        Object.keys(data.validations).forEach(function(key) {
+                            messages.push(data.validations[key]);
+                        });
+                    }
+                    wizardSetStatus(messages.join('; ') || "{{ lang._('Could not save the modem.') }}", 'danger');
+                    return;
+                }
+                var uuid = data.uuid;
+                if (mode === 'import') {
+                    wizardSetStatus("{{ lang._('Reading current settings from the modem...') }}");
+                    ajaxCall("/api/hilink/service/probe/" + uuid, {}, function(pdata) {
+                        var fields = {};
+                        if (pdata && pdata.status === 'ok' && pdata.settings) {
+                            var s = pdata.settings;
+                            if (s.network_mode !== undefined) {
+                                fields.network_mode = s.network_mode;
+                            }
+                            if (s.roaming_enabled !== undefined) {
+                                fields.roaming_enabled = s.roaming_enabled ? '1' : '0';
+                            }
+                            if (s.max_idle_time !== undefined) {
+                                fields.max_idle_time = String(s.max_idle_time);
+                            }
+                            if (s.auto_connect !== undefined) {
+                                fields.auto_connect = s.auto_connect ? '1' : '0';
+                            }
+                        } else {
+                            var message = (pdata && pdata.message) ? pdata.message : "{{ lang._('modem not reachable') }}";
+                            wizardSetStatus("{{ lang._('Import failed') }}" + " (" + message + "). " +
+                                "{{ lang._('The modem was added with plugin defaults; its settings will be overwritten once it becomes reachable.') }}", 'warning');
+                            wizardFinalize(uuid, fields, true);
+                            return;
+                        }
+                        wizardFinalize(uuid, fields);
+                    });
+                } else if (mode === 'nvram') {
+                    var reader = new FileReader();
+                    reader.onload = function(ev) {
+                        var fields = parseNvramBackup(ev.target.result);
+                        if (Object.keys(fields).length === 0) {
+                            wizardSetStatus("{{ lang._('No usable settings found in the backup file; continuing with plugin defaults.') }}", 'warning');
+                            wizardFinalize(uuid, fields, true);
+                            return;
+                        }
+                        wizardFinalize(uuid, fields);
+                    };
+                    reader.readAsText(nvramFile);
+                } else {
+                    wizardFinalize(uuid, {});
+                }
+            });
+        });
+
+        ajaxGet("/api/hilink/settings/get", {}, function(data, status) {
+            if (status !== 'success' || data.hilink === undefined) {
+                return;
+            }
+            if (data.hilink.general.wizard_completed === '1') {
+                return;
+            }
+            var modems = data.hilink.modems && data.hilink.modems.modem ? data.hilink.modems.modem : {};
+            if (Object.keys(modems).length > 0) {
+                // existing installation: never show the wizard, just mark it done
+                wizardMarkDone();
+                return;
+            }
+            $("#HiLinkWizard").modal('show');
+        });
+
         $("#saveAct").click(function() {
             $("#saveAct_progress").addClass("fa fa-spinner fa-pulse");
             saveFormToEndpoint("/api/hilink/settings/set", 'frm_GeneralSettings', function() {
@@ -93,3 +266,63 @@
 </div>
 
 {{ partial("layout_partials/base_dialog",['fields':formDialogModem,'id':'DialogModem','label':lang._('Edit modem')]) }}
+
+{# First-use wizard: import existing modem settings or start with defaults #}
+<div class="modal fade" id="HiLinkWizard" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false" aria-labelledby="HiLinkWizardTitle">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="HiLinkWizardTitle">{{ lang._('Welcome to HiLink — first use setup') }}</h4>
+            </div>
+            <div class="modal-body">
+                <p>{{ lang._('No modem is configured yet. Enter how to reach your HiLink modem and choose how to set it up.') }}</p>
+                <div class="form-group">
+                    <label for="wizard_name">{{ lang._('Name') }}</label>
+                    <input type="text" class="form-control" id="wizard_name" value="HiLinkModem">
+                </div>
+                <div class="form-group">
+                    <label for="wizard_ip">{{ lang._('IP address') }}</label>
+                    <input type="text" class="form-control" id="wizard_ip" value="192.168.8.1">
+                </div>
+                <div class="form-group">
+                    <label for="wizard_username">{{ lang._('Username') }}</label>
+                    <input type="text" class="form-control" id="wizard_username" value="admin">
+                </div>
+                <div class="form-group">
+                    <label for="wizard_password">{{ lang._('Password') }}</label>
+                    <input type="password" class="form-control" id="wizard_password" value="" autocomplete="new-password">
+                </div>
+                <hr/>
+                <div class="radio">
+                    <label>
+                        <input type="radio" name="wizard_mode" value="import" checked>
+                        <b>{{ lang._('Import current settings from the modem') }}</b> ({{ lang._('recommended') }})<br/>
+                        <small>{{ lang._('Reads network mode, roaming, idle timeout and auto-connect from the modem so nothing is overwritten.') }}</small>
+                    </label>
+                </div>
+                <div class="radio">
+                    <label>
+                        <input type="radio" name="wizard_mode" value="nvram">
+                        <b>{{ lang._('Import from a nvram.bak backup file') }}</b><br/>
+                        <small>{{ lang._('Use a backup downloaded from the modem (http://modem-ip/nvram.bak) when the modem is currently not reachable.') }}</small>
+                    </label>
+                </div>
+                <div class="form-group" id="wizard_nvram_group" style="display:none; margin-left: 20px;">
+                    <input type="file" id="wizard_nvram_file">
+                </div>
+                <div class="radio">
+                    <label>
+                        <input type="radio" name="wizard_mode" value="defaults">
+                        <b>{{ lang._('Start with plugin defaults') }}</b><br/>
+                        <small>{{ lang._('The plugin defaults (roaming off, automatic network mode) will be applied to the modem.') }}</small>
+                    </label>
+                </div>
+                <div id="wizard_status" class="alert alert-info" style="display:none" role="alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" id="wizard_skip">{{ lang._('Skip') }}</button>
+                <button type="button" class="btn btn-primary" id="wizard_finish">{{ lang._('Set up modem') }}</button>
+            </div>
+        </div>
+    </div>
+</div>

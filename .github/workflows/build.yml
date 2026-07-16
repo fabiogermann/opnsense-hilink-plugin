@@ -49,34 +49,67 @@ jobs:
     
     - name: Run tests
       run: |
-        python -m pytest tests/ --tb=short || true
-    
+        python -m pytest tests/ --tb=short
+
+    - name: Cache FreeBSD pkg tool
+      id: cache-pkg
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/pkg
+        key: freebsd-pkg-2.7.5-${{ runner.os }}
+
+    - name: Build FreeBSD pkg tool
+      if: steps.cache-pkg.outputs.cache-hit != 'true'
+      run: |
+        # freebsd/pkg publishes no binaries; it builds natively on Linux
+        sudo apt-get install -y build-essential m4 pkg-config zlib1g-dev \
+          libssl-dev libbz2-dev liblzma-dev libzstd-dev libarchive-dev \
+          libcurl4-openssl-dev libbsd-dev libsqlite3-dev
+        git clone --depth 1 -b 2.7.5 https://github.com/freebsd/pkg /tmp/pkgsrc
+        cd /tmp/pkgsrc
+        ./configure
+        make -j"$(nproc)"
+        sudo make install
+
     - name: Build package
       run: |
         make clean
         make build
         make package VERSION=${{ env.VERSION }}
-    
+
+    - name: Verify package installs
+      run: |
+        # Install into an empty root with the same tool OPNsense uses;
+        # -I skips install scripts (they need FreeBSD), -M ignores the
+        # python/rrdtool dependencies that only exist on the target box.
+        mkdir -p /tmp/pkgroot
+        pkg -r /tmp/pkgroot add -IM dist/os-hilink-${{ env.VERSION }}.pkg
+        test -f /tmp/pkgroot/usr/local/opnsense/scripts/hilink/hilink_service.py
+        test -f /tmp/pkgroot/usr/local/opnsense/mvc/app/models/OPNsense/HiLink/HiLink.xml
+        test -f /tmp/pkgroot/usr/local/opnsense/service/conf/actions.d/actions_hilink.conf
+        pkg -r /tmp/pkgroot info os-hilink
+        echo "package verified"
+
     - name: Generate checksums
       run: |
         cd dist
-        sha256sum *.txz > checksums.sha256
-        md5sum *.txz > checksums.md5
-    
+        sha256sum *.pkg > checksums.sha256
+        md5sum *.pkg > checksums.md5
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: hilink-plugin-${{ env.VERSION }}
         path: |
-          dist/*.txz
+          dist/*.pkg
           dist/checksums.*
-    
+
     - name: Create Release
       if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          dist/*.txz
+          dist/*.pkg
           dist/checksums.*
         generate_release_notes: true
         body: |
@@ -95,14 +128,13 @@ jobs:
           ```
           
           #### Method 2: Direct Download
-          1. Download the `os-hilink-${{ env.VERSION }}.txz` file below
-          2. Upload to OPNsense via System → Firmware → Plugins
-          3. Install the plugin
-          4. Navigate to Services → HiLink to configure
-          
+          1. Download the `os-hilink-${{ env.VERSION }}.pkg` file below
+          2. Copy it to your OPNsense box and run `pkg add os-hilink-${{ env.VERSION }}.pkg`
+          3. Navigate to Services → HiLink to configure
+
           #### Method 3: Command Line
           ```bash
-          pkg add https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/os-hilink-${{ env.VERSION }}.txz
+          pkg add https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/os-hilink-${{ env.VERSION }}.pkg
           ```
           
           ### Package Repository
@@ -139,7 +171,8 @@ jobs:
                 librrd-dev \
                 gcc \
                 python3-dev \
-                build-essential && \
+                build-essential \
+                zstd && \
             rm -rf /var/lib/apt/lists/*
         
         WORKDIR /app
@@ -152,9 +185,9 @@ jobs:
             pip install -r requirements.txt
         
         # Copy and extract the built artifact to verify it
-        COPY artifacts/*.txz /tmp/
+        COPY artifacts/*.pkg /tmp/
         RUN cd /tmp && \
-            tar -xzf *.txz && \
+            tar -xf *.pkg && \
             ls -la /tmp/
         
         # Run tests from the source directory

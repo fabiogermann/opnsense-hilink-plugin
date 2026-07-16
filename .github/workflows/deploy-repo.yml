@@ -25,16 +25,30 @@ jobs:
     - name: Setup Pages
       uses: actions/configure-pages@v5
     
-    - name: Install FreeBSD pkg tools
+    - name: Install helper tools
       run: |
         sudo apt-get update
         sudo apt-get install -y wget jq
-        
-        # Download FreeBSD pkg binary (static build for Linux)
-        wget -q https://github.com/freebsd/pkg/releases/download/1.20.9/pkg-1.20.9-x86_64-linux.tar.xz
-        tar -xf pkg-1.20.9-x86_64-linux.tar.xz
-        sudo mv pkg /usr/local/bin/
-        sudo chmod +x /usr/local/bin/pkg
+
+    - name: Cache FreeBSD pkg tool
+      id: cache-pkg
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/pkg
+        key: freebsd-pkg-2.7.5-${{ runner.os }}
+
+    - name: Build FreeBSD pkg tool
+      if: steps.cache-pkg.outputs.cache-hit != 'true'
+      run: |
+        # freebsd/pkg publishes no binaries; it builds natively on Linux
+        sudo apt-get install -y build-essential m4 pkg-config zlib1g-dev \
+          libssl-dev libbz2-dev liblzma-dev libzstd-dev libarchive-dev \
+          libcurl4-openssl-dev libbsd-dev libsqlite3-dev
+        git clone --depth 1 -b 2.7.5 https://github.com/freebsd/pkg /tmp/pkgsrc
+        cd /tmp/pkgsrc
+        ./configure
+        make -j"$(nproc)"
+        sudo make install
     
     - name: Create repository structure
       run: |
@@ -60,8 +74,9 @@ jobs:
           tag=$(echo "$release" | jq -r '.tag_name')
           echo "Processing release: $tag"
           
-          # Get assets for this release
-          assets=$(echo "$release" | jq -r '.assets[] | select(.name | endswith(".txz")) | @json')
+          # Get assets for this release (.pkg only: older .txz releases
+          # were not real FreeBSD packages and cannot be served)
+          assets=$(echo "$release" | jq -r '.assets[] | select(.name | endswith(".pkg")) | @json')
           
           if [ -n "$assets" ]; then
             echo "$assets" | while read -r asset; do
@@ -77,87 +92,15 @@ jobs:
           fi
         done
     
-    - name: Generate package manifests
-      run: |
-        # For each package file, extract and process manifest
-        for dir in repo/FreeBSD:*/; do
-          echo "Processing directory: $dir"
-          cd "$dir"
-          
-          for pkg in *.txz; do
-            if [ -f "$pkg" ]; then
-              echo "Processing package: $pkg"
-              
-              # Extract manifest from package
-              tar -xf "$pkg" -O +MANIFEST > "${pkg%.txz}.manifest" 2>/dev/null || true
-              
-              # Extract compact manifest for index
-              tar -xf "$pkg" -O +COMPACT_MANIFEST > "${pkg%.txz}.ucl" 2>/dev/null || true
-            fi
-          done
-          
-          cd - > /dev/null
-        done
-    
     - name: Create repository catalog
       run: |
+        # pkg repo generates the real catalog (packagesite + meta) that
+        # pkg update/install on OPNsense understands; unsigned to match
+        # the signature_type NONE repository configuration.
         for dir in repo/FreeBSD:*/; do
-          arch_dir=$(basename "$dir")
-          echo "Creating catalog for $arch_dir"
-          
-          cd "$dir"
-          
-          # Create packagesite.yaml
-          cat > packagesite.yaml << 'EOF'
-        version: 2
-        packages: {}
-        EOF
-          
-          # Add each package to the catalog
-          for pkg in *.txz; do
-            if [ -f "$pkg" ]; then
-              # Extract basic info from package
-              name="${pkg%-*-*.txz}"
-              version=$(echo "$pkg" | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)\.txz$/\1/')
-              
-              # Get file size and checksum
-              size=$(stat -c%s "$pkg")
-              sum=$(sha256sum "$pkg" | cut -d' ' -f1)
-              
-              # Append to catalog (simplified)
-              cat >> packagesite.yaml << EOF
-          $name:
-            name: "$name"
-            version: "$version"
-            origin: "opnsense/hilink"
-            comment: "HiLink modem management plugin for OPNsense"
-            arch: "freebsd:13:x86:64"
-            maintainer: "hilink@example.com"
-            www: "https://github.com/${{ github.repository }}"
-            prefix: "/usr/local"
-            flatsize: $size
-            path: "$pkg"
-            sum: "$sum"
-            desc: "HiLink modem management plugin providing monitoring and control for Huawei HiLink modems"
-            categories: ["net-mgmt", "opnsense"]
-        EOF
-            fi
-          done
-          
-          # Compress catalog
-          xz -c packagesite.yaml > packagesite.txz
-          
-          # Create meta.conf
-          cat > meta.conf << EOF
-        version = 2;
-        packing_format = "txz";
-        manifests = "packagesite.txz";
-        filesite = "filesite.txz";
-        manifests_archive = "packagesite.txz";
-        filesite_archive = "filesite.txz";
-        EOF
-          
-          cd - > /dev/null
+          echo "Creating catalog for $(basename "$dir")"
+          pkg repo "$dir"
+          ls -la "$dir"
         done
     
     - name: Create repository configuration
@@ -207,10 +150,10 @@ jobs:
         
         ```bash
         # For OPNsense on FreeBSD 13
-        pkg add https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:13:amd64/os-hilink-[version].txz
+        pkg add https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:13:amd64/os-hilink-[version].pkg
         
         # For OPNsense on FreeBSD 14
-        pkg add https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:14:amd64/os-hilink-[version].txz
+        pkg add https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/FreeBSD:14:amd64/os-hilink-[version].pkg
         ```
         
         ## Available Packages
@@ -222,7 +165,7 @@ jobs:
           arch=$(basename "$dir")
           echo "### $arch" >> repo/README.md
           echo "" >> repo/README.md
-          for pkg in "$dir"*.txz; do
+          for pkg in "$dir"*.pkg; do
             if [ -f "$pkg" ]; then
               basename "$pkg" | sed 's/^/- /' >> repo/README.md
             fi
@@ -373,7 +316,7 @@ jobs:
                     <ul class="package-list">
         EOF
           
-          for pkg in "$dir"*.txz; do
+          for pkg in "$dir"*.pkg; do
             if [ -f "$pkg" ]; then
               pkgname=$(basename "$pkg")
               size=$(du -h "$pkg" | cut -f1)
