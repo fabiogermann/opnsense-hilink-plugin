@@ -1,6 +1,6 @@
 <menu>
     <Services>
-        <HiLink VisibleName="HiLink" cssClass="fa fa-signal fa-fw" url="/ui/hilink/index">
+        <HiLink VisibleName="HiLink" cssClass="fa fa-signal fa-fw">
             <Dashboard order="10" url="/ui/hilink/index"/>
             <Settings order="20" url="/ui/hilink/settings"/>
         </HiLink>
