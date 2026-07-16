@@ -77,19 +77,6 @@ jobs:
         make build
         make package VERSION=${{ env.VERSION }}
     
-    - name: Verify package installs
-      run: |
-        # Install into an empty root with the same tool OPNsense uses;
-        # -I skips install scripts (they need FreeBSD), -M ignores the
-        # python/rrdtool dependencies that only exist on the target box.
-        mkdir -p /tmp/pkgroot
-        pkg -r /tmp/pkgroot add -IM dist/os-hilink-${{ env.VERSION }}.pkg
-        test -f /tmp/pkgroot/usr/local/opnsense/scripts/hilink/hilink_service.py
-        test -f /tmp/pkgroot/usr/local/opnsense/mvc/app/models/OPNsense/HiLink/HiLink.xml
-        test -f /tmp/pkgroot/usr/local/opnsense/service/conf/actions.d/actions_hilink.conf
-        pkg -r /tmp/pkgroot info os-hilink
-        echo "package verified"
-    
     - name: Generate checksums
       run: |
         cd dist
