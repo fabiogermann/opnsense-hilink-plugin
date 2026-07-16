@@ -30,12 +30,12 @@ Supported devices:
 - Huawei E8372h series (planned)
 EOD
 deps: {
-  python311: {origin: lang/python311, version: "3.11"},
-  py311-aiohttp: {origin: www/py-aiohttp, version: "3.9"},
-  py311-xmltodict: {origin: devel/py-xmltodict, version: "0.13"},
-  py311-beautifulsoup: {origin: www/py-beautifulsoup, version: "4.12"},
-  py311-defusedxml: {origin: devel/py-defusedxml, version: "0.7"},
-  py311-rrdtool: {origin: databases/py-rrdtool, version: "0.1"},
+  python313: {origin: lang/python313, version: "3.13"},
+  py313-aiohttp: {origin: www/py-aiohttp, version: "3.9"},
+  py313-xmltodict: {origin: devel/py-xmltodict, version: "0.13"},
+  py313-beautifulsoup: {origin: www/py-beautifulsoup, version: "4.12"},
+  py313-defusedxml: {origin: devel/py-defusedxml, version: "0.7"},
+  py313-rrdtool: {origin: databases/py-rrdtool, version: "0.1"},
   rrdtool: {origin: databases/rrdtool, version: "1.8"}
 }
 scripts: {

@@ -28,7 +28,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y rrdtool librrd-dev npm
+        sudo apt-get install -y rrdtool librrd-dev npm zstd
     
     - name: Install Python dependencies
       run: |
