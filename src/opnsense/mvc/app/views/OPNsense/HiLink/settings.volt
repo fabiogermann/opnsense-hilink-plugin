@@ -101,10 +101,9 @@
                     }
                     fields.enabled = '1';
                     ajaxCall("/api/hilink/settings/setModem/" + uuid, {'modem': fields}, function() {
-                        $("#grid-modems").bootgrid('reload');
-                        $("#ImportBackup").modal('hide');
-                        $('.modal-backdrop').remove();
-                        $('body').removeClass('modal-open');
+                        // Full page reload — most reliable way to refresh the grid
+                        // and rebind all edit handlers after adding a modem
+                        window.location.reload();
                     });
                 };
                 reader.readAsText(nvramFile);
