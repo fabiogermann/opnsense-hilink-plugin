@@ -187,6 +187,26 @@ Select preferred network type:
 - **4G Only**: Force 4G only (no fallback)
 - **3G Only**: Force 3G only (no fallback)
 
+#### Band Selection (advanced)
+Lock the modem to specific LTE and/or 3G/2G bands via hex bitmasks (leave at `ALL` for automatic):
+- **LTE band bitmask**: e.g. `80005` = B1+B3+B20; band N = `2**(N-1)`. `ALL` = `7FFFFFFFFFFFFFFF`.
+- **3G/2G band bitmask**: e.g. `400000` = UMTS B1/2100. `ALL` = `3FFFFFFF`.
+
+#### Auto Disconnect (advanced)
+- **Auto disconnect (min)**: Drop the mobile data session after this many idle minutes (0 = disabled).
+
+#### Network Search (advanced)
+- **Network search**: `Automatic` (modem picks the operator) or `Manual` (lock to a specific PLMN).
+- **Manual PLMN code**: the operator's Numeric PLMN (used only in manual mode).
+- **Manual RAT**: force 2G/3G/4G for the manual registration (or Automatic).
+
+#### NAT mode (not exposed via the plugin)
+Huawei HiLink USB sticks (E3372 series) operate in router/NAT mode by default and do not expose a
+NAT on/off toggle through the HiLink API. There is no standard `/api/...` endpoint for NAT/router-vs-bridge
+mode on these devices, so **NAT mode must be configured in the modem's own web UI**
+(`http://192.168.8.1`), not through this plugin. If a future modem model exposes a NAT endpoint,
+it can be added as a plugin feature.
+
 ### Data Management
 
 Navigate to **Settings → Data Management**:

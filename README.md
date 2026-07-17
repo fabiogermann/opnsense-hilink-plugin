@@ -13,8 +13,14 @@ A plugin for monitoring and managing Huawei HiLink-based 4G/LTE USB modems in OP
 
 ## Supported Devices
 
-- Huawei E3372s-153, E3372h-320, E3372h-153 (tested)
-- Huawei E8372h series (planned)
+| Model | Status |
+|---|---|
+| Huawei E3372h-320 | ✅ Tested (primary development device) |
+| Huawei E3372s-153 | ✅ Tested |
+| Huawei E3372h-153 | ✅ Tested |
+| Huawei E8372h series | 📋 Planned |
+
+See [docs/SETUP.md](docs/SETUP.md) for the OPNsense setup guide, including NAT-mode notes.
 
 ## Requirements
 
