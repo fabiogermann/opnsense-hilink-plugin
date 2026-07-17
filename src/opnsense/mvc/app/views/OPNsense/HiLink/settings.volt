@@ -62,7 +62,7 @@
                 .show();
         }
 
-        $("#btnImportBackup").click(function() {
+        $(document).on('click', '#btnImportBackup', function() {
             $("#import_status").hide();
             $("#ImportBackup").modal('show');
         });
