@@ -52,6 +52,65 @@
         });
 
         /**
+         * Import a modem from a nvram.bak backup file
+         */
+        function importSetStatus(message, level) {
+            $("#import_status")
+                .removeClass("alert-info alert-warning alert-danger")
+                .addClass("alert-" + (level || "info"))
+                .text(message)
+                .show();
+        }
+
+        $("#btnImportBackup").click(function() {
+            $("#import_status").hide();
+            $("#ImportBackup").modal('show');
+        });
+
+        $("#import_finish").click(function() {
+            var nvramFile = $("#import_nvram_file")[0].files[0];
+            if (nvramFile === undefined) {
+                importSetStatus("{{ lang._('Please select a nvram.bak file first.') }}", 'warning');
+                return;
+            }
+            var modem = {
+                'name': $("#import_name").val(),
+                'ip_address': $("#import_ip").val(),
+                'username': $("#import_username").val(),
+                'password': $("#import_password").val(),
+                'enabled': '0'
+            };
+            ajaxCall("/api/hilink/settings/addModem/", {'modem': modem}, function(data) {
+                if (!data || data.result !== 'saved') {
+                    var messages = [];
+                    if (data && data.validations) {
+                        Object.keys(data.validations).forEach(function(key) {
+                            messages.push(data.validations[key]);
+                        });
+                    }
+                    importSetStatus(messages.join('; ') || "{{ lang._('Could not save the modem.') }}", 'danger');
+                    return;
+                }
+                var uuid = data.uuid;
+                var reader = new FileReader();
+                reader.onload = function(ev) {
+                    var fields = parseNvramBackup(ev.target.result);
+                    if (Object.keys(fields).length === 0) {
+                        importSetStatus("{{ lang._('No usable settings found in the backup file; modem added with plugin defaults.') }}", 'warning');
+                    }
+                    fields.enabled = '1';
+                    ajaxCall("/api/hilink/settings/setModem/" + uuid, {'modem': fields}, function() {
+                        ajaxCall("/api/hilink/service/reconfigure", {}, function() {
+                            $("#grid-modems").bootgrid('reload');
+                            $("#ImportBackup").modal('hide');
+                        });
+                    });
+                };
+                reader.readAsText(nvramFile);
+            });
+        });
+
+        /**
          * First-use wizard
          * Shown once when the wizard has never been completed and no modems
          * are configured. Lets the user import the modem's current settings
@@ -270,6 +329,7 @@
                     <td>
                         <button data-action="add" type="button" class="btn btn-xs btn-primary"><span class="fa fa-plus"></span></button>
                         <button data-action="deleteSelected" type="button" class="btn btn-xs btn-default"><span class="fa fa-trash-o"></span></button>
+                        <button type="button" id="btnImportBackup" class="btn btn-xs btn-default" title="{{ lang._('Import a modem from a nvram.bak backup file') }}"><span class="fa fa-upload"></span></button>
                     </td>
                 </tr>
             </tfoot>
@@ -355,6 +415,50 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-default" id="wizard_skip">{{ lang._('Skip') }}</button>
                 <button type="button" class="btn btn-primary" id="wizard_finish">{{ lang._('Set up modem') }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Import-from-backup dialog: add a modem from a nvram.bak file #}
+<style>
+#ImportBackup .modal-header { padding: 12px 20px; }
+#ImportBackup .modal-body { padding: 20px; }
+#ImportBackup .modal-footer { padding: 12px 20px; }
+</style>
+<div class="modal fade" id="ImportBackup" tabindex="-1" role="dialog" aria-labelledby="ImportBackupTitle">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="ImportBackupTitle">{{ lang._('Import modem from backup') }}</h4>
+            </div>
+            <div class="modal-body">
+                <p>{{ lang._('Enter the modem connection details and select a nvram.bak backup file. The modem will be created with the settings read from the backup.') }}</p>
+                <div class="form-group">
+                    <label for="import_name">{{ lang._('Name') }}</label>
+                    <input type="text" class="form-control" id="import_name" value="HiLinkModem">
+                </div>
+                <div class="form-group">
+                    <label for="import_ip">{{ lang._('IP address') }}</label>
+                    <input type="text" class="form-control" id="import_ip" value="192.168.8.1">
+                </div>
+                <div class="form-group">
+                    <label for="import_username">{{ lang._('Username') }}</label>
+                    <input type="text" class="form-control" id="import_username" value="admin">
+                </div>
+                <div class="form-group">
+                    <label for="import_password">{{ lang._('Password') }}</label>
+                    <input type="password" class="form-control" id="import_password" value="" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="import_nvram_file">{{ lang._('nvram.bak backup file') }}</label>
+                    <input type="file" id="import_nvram_file">
+                </div>
+                <div id="import_status" class="alert alert-info" style="display:none" role="alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" id="import_finish">{{ lang._('Import') }}</button>
             </div>
         </div>
     </div>
