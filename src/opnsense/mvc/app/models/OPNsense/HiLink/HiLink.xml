@@ -112,6 +112,9 @@
                         <option value="4g">4G</option>
                     </OptionValues>
                 </manual_rat>
+                <active_profile type="TextField">
+                    <Required>N</Required>
+                </active_profile>
                 <collect_interval type="IntegerField">
                     <default>30</default>
                     <MinimumValue>10</MinimumValue>

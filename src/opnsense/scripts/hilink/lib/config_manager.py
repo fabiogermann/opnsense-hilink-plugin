@@ -39,6 +39,7 @@ class ModemConfig:
     network_search: str = "auto"  # auto | manual
     manual_plmn: str = ""
     manual_rat: str = "auto"  # auto | 2g | 3g | 4g
+    active_profile: str = ""  # dialup/APN profile index, "" = keep current
 
     # Monitoring settings
     collect_interval: int = 30  # seconds
@@ -290,6 +291,8 @@ class ConfigManager:
                         or "",
                         manual_rat=modem_elem.findtext("manual_rat")
                         or "auto",
+                        active_profile=modem_elem.findtext("active_profile", "")
+                        or "",
                         collect_interval=self._findint(
                             modem_elem, "collect_interval", 30
                         ),
@@ -437,6 +440,9 @@ class ConfigManager:
                 )
                 StandardET.SubElement(modem_elem, "manual_rat").text = (
                     modem.manual_rat
+                )
+                StandardET.SubElement(modem_elem, "active_profile").text = (
+                    modem.active_profile
                 )
                 StandardET.SubElement(modem_elem, "collect_interval").text = str(
                     modem.collect_interval

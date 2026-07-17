@@ -241,6 +241,10 @@ class ModemManager:
                     self.config.manual_rat,
                 )
 
+            # Active APN profile (only when the user set an index)
+            if self.config.active_profile:
+                await self.modem.set_active_profile(self.config.active_profile)
+
             logger.info(f"Applied settings to modem {self.config.name}")
             return True
 

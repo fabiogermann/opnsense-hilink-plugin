@@ -939,6 +939,92 @@ class HiLinkModem:
             })
         return result
 
+    async def get_profiles(self) -> list:
+        """List the modem's dialup/connection (APN) profiles.
+
+        Returns a list of dicts: {Index, Name, Apn, Username, AuthName,
+        DialNumber, IpType}. Returns [] on failure.
+        """
+        try:
+            response = await self._request("GET", "/api/dialup/profiles")
+            data = xml_to_dict(response)
+            profiles = data.get("response", {}).get("Profiles", {}).get("Profile", [])
+            if isinstance(profiles, dict):
+                profiles = [profiles]
+            elif not isinstance(profiles, list):
+                return []
+            result = []
+            for p in profiles:
+                if not isinstance(p, dict):
+                    continue
+                result.append({
+                    "Index": p.get("Index", ""),
+                    "Name": p.get("Name", ""),
+                    "Apn": p.get("Apn", ""),
+                    "Username": p.get("Username", ""),
+                    "AuthName": p.get("AuthName", ""),
+                    "DialNumber": p.get("DialNumber", ""),
+                    "IpType": p.get("IpType", ""),
+                })
+            return result
+        except HiLinkException as e:
+            logger.error(f"Failed to list profiles for modem {self.name}: {e}")
+            return []
+
+    async def get_active_profile(self) -> str:
+        """Return the Index of the currently active dialup profile, or ''."""
+        try:
+            response = await self._request("GET", "/api/dialup/profiles")
+            data = xml_to_dict(response)
+            return str(data.get("response", {}).get("Profiles", {}).get("CurrentProfile", ""))
+        except HiLinkException as e:
+            logger.error(f"Failed to get active profile for modem {self.name}: {e}")
+            return ""
+
+    async def set_active_profile(self, profile_index: str) -> bool:
+        """Set the active dialup profile by its Index.
+
+        Reads the current profile list, finds the matching profile, and
+        re-POSTs it as the active profile. The Huawei API expects the full
+        profile record with the CurrentProfile field set.
+        """
+        try:
+            response = await self._request("GET", "/api/dialup/profiles")
+            data = xml_to_dict(response)
+            profiles = data.get("response", {}).get("Profiles", {}).get("Profile", [])
+            if isinstance(profiles, dict):
+                profiles = [profiles]
+            elif not isinstance(profiles, list):
+                profiles = []
+
+            target = next(
+                (p for p in profiles if isinstance(p, dict) and str(p.get("Index")) == str(profile_index)),
+                None,
+            )
+            if target is None:
+                logger.error(f"Profile index {profile_index} not found on modem {self.name}")
+                return False
+
+            # Re-post the chosen profile; CurrentProfile selects it.
+            fields = [
+                "Index", "Name", "Apn", "Username", "Password", "AuthName",
+                "DialNumber", "IpType",
+            ]
+            body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<request>"
+            body += f"<Profiles><CurrentProfile>{profile_index}</CurrentProfile>"
+            body += "<Profile>"
+            for f in fields:
+                body += f"<{f}>{target.get(f, '')}</{f}>"
+            body += "</Profile></Profiles>"
+            body += "</request>"
+
+            await self._request("POST", "/api/dialup/profiles", data=body)
+            logger.info(f"Active profile set to {profile_index} for modem {self.name}")
+            return True
+        except HiLinkException as e:
+            logger.error(f"Failed to set active profile for modem {self.name}: {e}")
+            return False
+
     # Reverse mapping of modem NetworkMode codes to plugin network_mode values
     NETWORK_MODE_TO_CONFIG = {
         NetworkMode.AUTO.value: "auto",
