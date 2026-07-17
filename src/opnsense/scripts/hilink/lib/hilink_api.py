@@ -790,6 +790,155 @@ class HiLinkModem:
             logger.error(f"Failed to set roaming: {e}")
             return False
 
+    async def set_auto_disconnect(self, minutes: int) -> bool:
+        """Set the auto-disconnect idle interval (in minutes).
+
+        The modem's MaxIdelTime is expressed in seconds; 0 disables the
+        auto-disconnect feature. All other connection fields are preserved
+        from the current device setting.
+        """
+        response = await self._request("GET", "/api/dialup/connection")
+        data = xml_to_dict(response)
+
+        if "response" not in data:
+            return False
+
+        current_data = data["response"]
+        max_idle_seconds = str(int(minutes) * 60)
+
+        xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <request>
+            <RoamAutoConnectEnable>{current_data.get('RoamAutoConnectEnable', '0')}</RoamAutoConnectEnable>
+            <MaxIdelTime>{max_idle_seconds}</MaxIdelTime>
+            <ConnectMode>{current_data.get('ConnectMode', '0')}</ConnectMode>
+            <MTU>{current_data.get('MTU', '1500')}</MTU>
+            <auto_dial_switch>{current_data.get('auto_dial_switch', '1')}</auto_dial_switch>
+            <pdp_always_on>{current_data.get('pdp_always_on', '0')}</pdp_always_on>
+        </request>"""
+
+        try:
+            await self._request("POST", "/api/dialup/connection", data=xml_data)
+            logger.info(
+                f"Auto disconnect set to {int(minutes)} minutes "
+                f"({max_idle_seconds}s) for modem {self.name}"
+            )
+            return True
+        except HiLinkException as e:
+            logger.error(f"Failed to set auto disconnect: {e}")
+            return False
+
+    async def set_bands(self, lte_band_hex: str, network_band_hex: str) -> bool:
+        """Lock LTE and UMTS/GSM band selection via hex bitmasks.
+
+        Both arguments are hex strings (e.g. '7FFFFFFFFFFFFFFF' for all LTE
+        bands, '3FFFFFFF' for all 3G/2G bands). The current NetworkMode is
+        preserved from the device.
+        """
+        response = await self._request("GET", "/api/net/net-mode")
+        data = xml_to_dict(response)
+
+        if "response" not in data:
+            return False
+
+        current_data = data["response"]
+        lte_band_hex = str(lte_band_hex).upper()
+        network_band_hex = str(network_band_hex).upper()
+
+        xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <request>
+            <NetworkMode>{current_data.get('NetworkMode', '00')}</NetworkMode>
+            <NetworkBand>{network_band_hex}</NetworkBand>
+            <LTEBand>{lte_band_hex}</LTEBand>
+        </request>"""
+
+        try:
+            await self._request("POST", "/api/net/net-mode", data=xml_data)
+            logger.info(
+                f"Bands set to LTE={lte_band_hex}, 3G/2G={network_band_hex} "
+                f"for modem {self.name}"
+            )
+            return True
+        except HiLinkException as e:
+            logger.error(f"Failed to set bands: {e}")
+            return False
+
+    async def set_network_search(self, mode: str, plmn: str = "", rat: str = "auto") -> bool:
+        """Set PLMN network search mode (auto/manual).
+
+        ``mode`` is 'auto' or 'manual'. When manual, ``plmn`` is the numeric
+        PLMN code and ``rat`` selects the radio access technology
+        ('auto', '2g', '3g', '4g'), mapped to the modem Rat values
+        ('' / 0 / 2 / 7).
+        """
+        rat_map = {"auto": "", "2g": "0", "3g": "2", "4g": "7"}
+        rat_value = rat_map.get(str(rat).lower(), "")
+
+        if str(mode).lower() == "manual":
+            mode_value = "1"
+            plmn_value = str(plmn) if plmn is not None else ""
+        else:
+            mode_value = "0"
+            plmn_value = ""
+
+        xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <request>
+            <Mode>{mode_value}</Mode>
+            <Plmn>{plmn_value}</Plmn>
+            <Rat>{rat_value}</Rat>
+        </request>"""
+
+        try:
+            await self._request("POST", "/api/net/register", data=xml_data)
+            logger.info(
+                f"Network search set to {mode}"
+                + (f" PLMN={plmn_value} Rat={rat_value}" if mode_value == "1" else "")
+                + f" for modem {self.name}"
+            )
+            return True
+        except HiLinkException as e:
+            logger.error(f"Failed to set network search: {e}")
+            return False
+
+    async def get_plmn_list(self) -> list:
+        """Return the list of available PLMNs from the modem.
+
+        Each entry is a dict with keys ``Name``, ``Numeric`` and ``Rat``.
+        Returns an empty list on failure or when no networks are reported.
+        """
+        try:
+            response = await self._request("GET", "/api/net/plmn-list")
+            data = xml_to_dict(response)
+        except HiLinkException as e:
+            logger.error(f"Failed to fetch PLMN list: {e}")
+            return []
+
+        resp = data.get("response") if isinstance(data, dict) else None
+        if not resp or not isinstance(resp, dict):
+            return []
+
+        networks = resp.get("Networks")
+        if not networks or not isinstance(networks, dict):
+            return []
+
+        network = networks.get("Network")
+        if network is None:
+            return []
+        if isinstance(network, dict):
+            network = [network]
+        elif not isinstance(network, list):
+            return []
+
+        result = []
+        for net in network:
+            if not isinstance(net, dict):
+                continue
+            result.append({
+                "Name": net.get("Name", ""),
+                "Numeric": net.get("Numeric", ""),
+                "Rat": net.get("Rat", ""),
+            })
+        return result
+
     # Reverse mapping of modem NetworkMode codes to plugin network_mode values
     NETWORK_MODE_TO_CONFIG = {
         NetworkMode.AUTO.value: "auto",
@@ -814,6 +963,8 @@ class HiLinkModem:
         if "response" in data and data["response"]:
             mode = str(data["response"].get("NetworkMode", "00"))
             settings["network_mode"] = self.NETWORK_MODE_TO_CONFIG.get(mode, "auto")
+            settings["lte_band"] = str(data["response"].get("LTEBand", "")).upper()
+            settings["network_band"] = str(data["response"].get("NetworkBand", "")).upper()
 
         response = await self._request("GET", "/api/dialup/connection")
         data = xml_to_dict(response)
@@ -822,7 +973,9 @@ class HiLinkModem:
             settings["roaming_enabled"] = (
                 str(conn.get("RoamAutoConnectEnable", "0")) == "1"
             )
-            settings["max_idle_time"] = self._parse_int(conn.get("MaxIdelTime")) or 0
+            idle_seconds = self._parse_int(conn.get("MaxIdelTime")) or 0
+            settings["max_idle_time"] = idle_seconds
+            settings["auto_disconnect_min"] = idle_seconds // 60
             # ConnectMode 0 means the modem dials automatically
             settings["auto_connect"] = str(conn.get("ConnectMode", "0")) == "0"
 

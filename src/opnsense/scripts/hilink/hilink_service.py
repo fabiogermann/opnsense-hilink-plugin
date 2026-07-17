@@ -220,6 +220,27 @@ class ModemManager:
             if self.config.network_mode in mode_map:
                 await self.modem.set_network_mode(mode_map[self.config.network_mode])
 
+            # Band locking (only when the user narrowed below ALL)
+            if (
+                self.config.lte_band.upper() != "7FFFFFFFFFFFFFFF"
+                or self.config.network_band.upper() != "3FFFFFFF"
+            ):
+                await self.modem.set_bands(
+                    self.config.lte_band, self.config.network_band
+                )
+
+            # Auto-disconnect after N idle minutes (0 = disabled)
+            if self.config.auto_disconnect_min:
+                await self.modem.set_auto_disconnect(self.config.auto_disconnect_min)
+
+            # Network search mode (auto/manual PLMN)
+            if self.config.network_search:
+                await self.modem.set_network_search(
+                    self.config.network_search,
+                    self.config.manual_plmn,
+                    self.config.manual_rat,
+                )
+
             logger.info(f"Applied settings to modem {self.config.name}")
             return True
 

@@ -81,6 +81,37 @@
                     <MinimumValue>1</MinimumValue>
                     <MaximumValue>10</MaximumValue>
                 </max_reconnect_attempts>
+                <auto_disconnect_min type="IntegerField">
+                    <default>0</default>
+                    <MinimumValue>0</MinimumValue>
+                    <MaximumValue>1440</MaximumValue>
+                    <ValidationMessage>Auto disconnect must be between 0 and 1440 minutes (0 = disabled)</ValidationMessage>
+                </auto_disconnect_min>
+                <lte_band type="TextField">
+                    <default>7FFFFFFFFFFFFFFF</default>
+                </lte_band>
+                <network_band type="TextField">
+                    <default>3FFFFFFF</default>
+                </network_band>
+                <network_search type="OptionField">
+                    <default>auto</default>
+                    <OptionValues>
+                        <option value="auto">Automatic</option>
+                        <option value="manual">Manual</option>
+                    </OptionValues>
+                </network_search>
+                <manual_plmn type="TextField">
+                    <Required>N</Required>
+                </manual_plmn>
+                <manual_rat type="OptionField">
+                    <default>auto</default>
+                    <OptionValues>
+                        <option value="auto">Automatic</option>
+                        <option value="2g">2G</option>
+                        <option value="3g">3G</option>
+                        <option value="4g">4G</option>
+                    </OptionValues>
+                </manual_rat>
                 <collect_interval type="IntegerField">
                     <default>30</default>
                     <MinimumValue>10</MinimumValue>

@@ -32,6 +32,14 @@ class ModemConfig:
     reconnect_interval: int = 60  # seconds
     max_reconnect_attempts: int = 3
 
+    # Band / network-selection / auto-disconnect (per-modem)
+    auto_disconnect_min: int = 0  # minutes, 0 = disabled
+    lte_band: str = "7FFFFFFFFFFFFFFF"  # hex bitmask, ALL
+    network_band: str = "3FFFFFFF"  # hex bitmask, ALL
+    network_search: str = "auto"  # auto | manual
+    manual_plmn: str = ""
+    manual_rat: str = "auto"  # auto | 2g | 3g | 4g
+
     # Monitoring settings
     collect_interval: int = 30  # seconds
     signal_threshold: int = -90  # dBm
@@ -269,6 +277,19 @@ class ConfigManager:
                         max_reconnect_attempts=self._findint(
                             modem_elem, "max_reconnect_attempts", 3
                         ),
+                        auto_disconnect_min=self._findint(
+                            modem_elem, "auto_disconnect_min", 0
+                        ),
+                        lte_band=modem_elem.findtext("lte_band")
+                        or "7FFFFFFFFFFFFFFF",
+                        network_band=modem_elem.findtext("network_band")
+                        or "3FFFFFFF",
+                        network_search=modem_elem.findtext("network_search")
+                        or "auto",
+                        manual_plmn=modem_elem.findtext("manual_plmn", "")
+                        or "",
+                        manual_rat=modem_elem.findtext("manual_rat")
+                        or "auto",
                         collect_interval=self._findint(
                             modem_elem, "collect_interval", 30
                         ),
@@ -400,6 +421,22 @@ class ConfigManager:
                 )
                 StandardET.SubElement(modem_elem, "max_reconnect_attempts").text = str(
                     modem.max_reconnect_attempts
+                )
+                StandardET.SubElement(modem_elem, "auto_disconnect_min").text = str(
+                    modem.auto_disconnect_min
+                )
+                StandardET.SubElement(modem_elem, "lte_band").text = modem.lte_band
+                StandardET.SubElement(modem_elem, "network_band").text = (
+                    modem.network_band
+                )
+                StandardET.SubElement(modem_elem, "network_search").text = (
+                    modem.network_search
+                )
+                StandardET.SubElement(modem_elem, "manual_plmn").text = (
+                    modem.manual_plmn
+                )
+                StandardET.SubElement(modem_elem, "manual_rat").text = (
+                    modem.manual_rat
                 )
                 StandardET.SubElement(modem_elem, "collect_interval").text = str(
                     modem.collect_interval

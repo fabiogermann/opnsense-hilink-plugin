@@ -66,6 +66,46 @@
         <help>Reconnect attempts before backing off (1-10).</help>
     </field>
     <field>
+        <id>modem.auto_disconnect_min</id>
+        <label>Auto disconnect (min)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Disconnect the mobile data session after this many idle minutes (0 = disabled).</help>
+    </field>
+    <field>
+        <id>modem.lte_band</id>
+        <label>LTE band bitmask</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Hex bitmask of LTE bands to lock (e.g. 80005 = B1+B3+B20; band N = 2**(N-1)). ALL = 7FFFFFFFFFFFFFFF. Leave at ALL for automatic.</help>
+    </field>
+    <field>
+        <id>modem.network_band</id>
+        <label>3G/2G band bitmask</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Hex bitmask of UMTS/GSM bands (e.g. 400000 = UMTS B1/2100). ALL = 3FFFFFFF. Leave at ALL for automatic.</help>
+    </field>
+    <field>
+        <id>modem.network_search</id>
+        <label>Network search</label>
+        <type>dropdown</type>
+        <advanced>true</advanced>
+    </field>
+    <field>
+        <id>modem.manual_plmn</id>
+        <label>Manual PLMN code</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>PLMN code (Numeric) for manual network selection; ignored in automatic mode.</help>
+    </field>
+    <field>
+        <id>modem.manual_rat</id>
+        <label>Manual RAT</label>
+        <type>dropdown</type>
+        <advanced>true</advanced>
+    </field>
+    <field>
         <id>modem.collect_interval</id>
         <label>Collect interval</label>
         <type>text</type>
