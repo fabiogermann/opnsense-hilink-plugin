@@ -107,10 +107,10 @@
     </field>
     <field>
         <id>modem.active_profile</id>
-        <label>Active APN profile (index)</label>
-        <type>text</type>
+        <label>Active APN profile</label>
+        <type>dropdown</type>
         <advanced>true</advanced>
-        <help>Index of the dialup/APN profile to activate (from the modem's profile list). Leave empty to keep the current profile.</help>
+        <help>APN profile to activate on the modem. Populated live from the modem's profile list when editing an existing modem; leave empty to keep the current profile.</help>
     </field>
     <field>
         <id>modem.collect_interval</id>

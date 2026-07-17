@@ -106,6 +106,26 @@ async def probe_settings(modem_config: ModemConfig) -> dict:
     return {"status": "ok", "uuid": modem_config.uuid, "settings": settings}
 
 
+async def list_profiles(modem_config: ModemConfig) -> dict:
+    """List the modem's APN profiles and the active one"""
+    modem = HiLinkModem(
+        host=modem_config.ip_address,
+        username=modem_config.username,
+        password=modem_config.password,
+        name=modem_config.name,
+    )
+    async with modem:
+        profiles = await modem.get_profiles()
+        active = await modem.get_active_profile()
+
+    return {
+        "status": "ok",
+        "uuid": modem_config.uuid,
+        "active": active,
+        "profiles": profiles,
+    }
+
+
 async def run_test(config_path) -> dict:
     """Validate the configuration and probe each enabled modem"""
     config = ConfigManager(config_path)
@@ -145,6 +165,7 @@ def main():
             "disconnect",
             "reboot",
             "probe",
+            "profiles",
             "test",
         ],
     )
@@ -175,6 +196,8 @@ def main():
             output(asyncio.run(get_status(modem_config)))
         elif args.command == "probe":
             output(asyncio.run(probe_settings(modem_config)))
+        elif args.command == "profiles":
+            output(asyncio.run(list_profiles(modem_config)))
         else:
             output(asyncio.run(run_command(modem_config, args.command)))
     except Exception as e:

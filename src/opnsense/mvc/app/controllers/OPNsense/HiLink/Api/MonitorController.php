@@ -166,6 +166,29 @@ class MonitorController extends ApiControllerBase
     }
 
     /**
+     * List the modem's APN profiles and the active one
+     * @return array
+     */
+    public function profilesAction()
+    {
+        $modemUuid = $this->resolveModemUuid();
+        if (empty($modemUuid)) {
+            return ['status' => 'error', 'message' => 'No modem configured or enabled'];
+        }
+        if (!$this->isKnownModem($modemUuid)) {
+            return ['status' => 'error', 'message' => 'Unknown modem'];
+        }
+
+        $backend = new Backend();
+        $response = $backend->configdpRun('hilink getprofiles', [$modemUuid]);
+        $data = json_decode((string)$response, true);
+        if (!is_array($data)) {
+            return ['status' => 'error', 'message' => 'No response from modem'];
+        }
+        return $data;
+    }
+
+    /**
      * Run a modem control command via configd
      * @param string $command connect|disconnect|reboot
      * @return array
