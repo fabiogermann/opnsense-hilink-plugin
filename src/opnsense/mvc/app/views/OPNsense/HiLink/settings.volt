@@ -27,26 +27,29 @@
         // when editing an existing modem. The API resolves to the first
         // enabled modem when no modem_uuid is passed.
         $('#DialogModem').on('shown.bs.modal', function() {
-            var $sel = $('#modem\\.active_profile');
-            // Remove all but the first (placeholder) option
-            $sel.find('option').not(':first').remove();
-            ajaxGet('/api/hilink/monitor/profiles', {}, function(data, status) {
-                if (status !== 'success' || !data || data['status'] !== 'ok') {
-                    return;
-                }
-                var active = data['active'] || '';
-                (data['profiles'] || []).forEach(function(p) {
-                    var label = p['Name'] || ('Profile ' + p['Index']);
-                    if (p['Apn']) { label += ' (' + p['Apn'] + ')'; }
-                    var $opt = $('<option/>').val(p['Index']).text(label);
-                    if (p['Index'] === active) { $opt.prop('selected', true); }
-                    $sel.append($opt);
+            try {
+                var $sel = $('#modem\\.active_profile');
+                $sel.find('option').not(':first').remove();
+                ajaxGet('/api/hilink/monitor/profiles', {}, function(data, status) {
+                    if (status !== 'success' || !data || data['status'] !== 'ok') {
+                        return;
+                    }
+                    var active = data['active'] || '';
+                    (data['profiles'] || []).forEach(function(p) {
+                        var label = p['Name'] || ('Profile ' + p['Index']);
+                        if (p['Apn']) { label += ' (' + p['Apn'] + ')'; }
+                        var $opt = $('<option/>').val(p['Index']).text(label);
+                        if (p['Index'] === active) { $opt.prop('selected', true); }
+                        $sel.append($opt);
+                    });
+                    // bootstrap-select widget needs a refresh to show new options
+                    if ($sel.hasClass('selectpicker')) {
+                        $sel.selectpicker('refresh');
+                    }
                 });
-                // bootstrap-select widget needs a refresh to show new options
-                if ($sel.hasClass('selectpicker')) {
-                    $sel.selectpicker('refresh');
-                }
-            });
+            } catch(e) {
+                console.warn('Profile dropdown population failed:', e);
+            }
         });
 
         /**
@@ -98,10 +101,10 @@
                     }
                     fields.enabled = '1';
                     ajaxCall("/api/hilink/settings/setModem/" + uuid, {'modem': fields}, function() {
-                        ajaxCall("/api/hilink/service/reconfigure", {}, function() {
-                            $("#grid-modems").bootgrid('reload');
-                            $("#ImportBackup").modal('hide');
-                        });
+                        $("#grid-modems").bootgrid('reload');
+                        $("#ImportBackup").modal('hide');
+                        $('.modal-backdrop').remove();
+                        $('body').removeClass('modal-open');
                     });
                 };
                 reader.readAsText(nvramFile);
