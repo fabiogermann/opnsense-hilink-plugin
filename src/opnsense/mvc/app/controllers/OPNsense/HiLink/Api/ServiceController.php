@@ -127,7 +127,7 @@ class ServiceController extends ApiMutableServiceControllerBase
      * Check if service is enabled
      * @return bool
      */
-    private function serviceEnabled()
+    protected function serviceEnabled()
     {
         $model = $this->getModel();
         return (string)$model->general->enabled === '1';

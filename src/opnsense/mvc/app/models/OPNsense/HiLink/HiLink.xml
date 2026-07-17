@@ -46,7 +46,7 @@
                 <username type="TextField">
                     <default>admin</default>
                 </username>
-                <password type="PasswordField">
+                <password type="TextField">
                     <Required>N</Required>
                 </password>
                 <auto_connect type="BooleanField">
@@ -143,7 +143,7 @@
             <smtp_username type="TextField">
                 <Required>N</Required>
             </smtp_username>
-            <smtp_password type="PasswordField">
+            <smtp_password type="TextField">
                 <Required>N</Required>
             </smtp_password>
             <smtp_use_tls type="BooleanField">
