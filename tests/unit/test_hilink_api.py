@@ -44,7 +44,7 @@ class TestHiLinkModem:
         with patch.object(modem, '_initialize_session', new_callable=AsyncMock) as mock_init:
             with patch.object(modem, '_check_login_required', new_callable=AsyncMock) as mock_check:
                 with patch.object(modem, 'login', new_callable=AsyncMock) as mock_login:
-                    with patch('aiohttp.ClientSession') as mock_session:
+                    with patch('httpx.AsyncClient') as mock_session:
                         mock_check.return_value = None
                         modem.login_required = False
                         
@@ -61,7 +61,7 @@ class TestHiLinkModem:
         with patch.object(modem, '_initialize_session', new_callable=AsyncMock) as mock_init:
             with patch.object(modem, '_check_login_required', new_callable=AsyncMock) as mock_check:
                 with patch.object(modem, 'login', new_callable=AsyncMock) as mock_login:
-                    with patch('aiohttp.ClientSession') as mock_session:
+                    with patch('httpx.AsyncClient') as mock_session:
                         mock_check.return_value = None
                         modem.login_required = True
                         modem.logged_in = False
@@ -82,7 +82,7 @@ class TestHiLinkModem:
         
         await modem.disconnect()
         
-        mock_session.close.assert_called_once()
+        mock_session.aclose.assert_called_once()
         assert modem.session is None
         assert modem.logged_in is False
     
