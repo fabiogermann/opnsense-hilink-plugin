@@ -23,7 +23,6 @@ class ServiceController extends ApiMutableServiceControllerBase
     public function startAction()
     {
         if ($this->request->isPost()) {
-            $this->sessionClose();
             $backend = new Backend();
             $response = $backend->configdRun('hilink start');
             return ['response' => $response, 'status' => 'ok'];
@@ -38,7 +37,6 @@ class ServiceController extends ApiMutableServiceControllerBase
     public function stopAction()
     {
         if ($this->request->isPost()) {
-            $this->sessionClose();
             $backend = new Backend();
             $response = $backend->configdRun('hilink stop');
             return ['response' => $response, 'status' => 'ok'];
@@ -53,7 +51,6 @@ class ServiceController extends ApiMutableServiceControllerBase
     public function restartAction()
     {
         if ($this->request->isPost()) {
-            $this->sessionClose();
             $backend = new Backend();
             $response = $backend->configdRun('hilink restart');
             return ['response' => $response, 'status' => 'ok'];
@@ -67,7 +64,6 @@ class ServiceController extends ApiMutableServiceControllerBase
      */
     public function statusAction()
     {
-        $this->sessionClose();
         $backend = new Backend();
         $response = trim((string)$backend->configdRun('hilink status'));
 
@@ -85,7 +81,6 @@ class ServiceController extends ApiMutableServiceControllerBase
     public function testAction()
     {
         if ($this->request->isPost()) {
-            $this->sessionClose();
             $backend = new Backend();
             $response = (string)$backend->configdRun('hilink test');
             $success = strpos($response, 'success') !== false;
@@ -113,7 +108,6 @@ class ServiceController extends ApiMutableServiceControllerBase
             return ['status' => 'error', 'message' => 'Invalid modem UUID'];
         }
 
-        $this->sessionClose();
         $backend = new Backend();
         $response = trim((string)$backend->configdpRun('hilink probe', [$uuid]));
         $data = json_decode($response, true);
@@ -144,7 +138,6 @@ class ServiceController extends ApiMutableServiceControllerBase
 
         if ($this->request->isPost()) {
             $status = 'ok';
-            $this->sessionClose();
 
             $backend = new Backend();
             if ($this->serviceEnabled()) {

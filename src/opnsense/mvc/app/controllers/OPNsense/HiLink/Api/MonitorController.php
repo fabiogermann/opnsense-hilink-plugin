@@ -55,7 +55,6 @@ class MonitorController extends ApiControllerBase
      */
     public function statusAction()
     {
-        $this->sessionClose();
         $modemUuid = $this->resolveModemUuid();
 
         if (empty($modemUuid)) {
@@ -110,7 +109,6 @@ class MonitorController extends ApiControllerBase
      */
     public function metricsAction()
     {
-        $this->sessionClose();
         $modemUuid = $this->resolveModemUuid();
 
         if (empty($modemUuid) || !$this->isKnownModem($modemUuid)) {
@@ -178,7 +176,6 @@ class MonitorController extends ApiControllerBase
             return ['status' => 'error', 'message' => 'Invalid request method'];
         }
 
-        $this->sessionClose();
         $modemUuid = (string)$this->request->get('modem_uuid', null, '');
         if (empty($modemUuid)) {
             $modemUuid = (string)$this->request->getPost('modem_uuid', null, '');
