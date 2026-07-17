@@ -24,19 +24,13 @@
         });
 
         // Populate the "Active APN profile" dropdown live from the modem
-        // when editing an existing modem. The UUID is captured from the
-        // edit button's data-row-id before the dialog opens.
-        var editModemUuid = '';
-        $(document).on('click', '#grid-modems .command-edit', function() {
-            editModemUuid = $(this).data('row-id') || '';
-        });
+        // when editing an existing modem. The API resolves to the first
+        // enabled modem when no modem_uuid is passed.
         $('#DialogModem').on('shown.bs.modal', function() {
             var $sel = $('#modem\\.active_profile');
+            // Remove all but the first (placeholder) option
             $sel.find('option').not(':first').remove();
-            if (!editModemUuid) {
-                return; // adding a new modem — no live profile list yet
-            }
-            ajaxGet('/api/hilink/monitor/profiles', {'modem_uuid': editModemUuid}, function(data, status) {
+            ajaxGet('/api/hilink/monitor/profiles', {}, function(data, status) {
                 if (status !== 'success' || !data || data['status'] !== 'ok') {
                     return;
                 }
@@ -48,6 +42,10 @@
                     if (p['Index'] === active) { $opt.prop('selected', true); }
                     $sel.append($opt);
                 });
+                // bootstrap-select widget needs a refresh to show new options
+                if ($sel.hasClass('selectpicker')) {
+                    $sel.selectpicker('refresh');
+                }
             });
         });
 
