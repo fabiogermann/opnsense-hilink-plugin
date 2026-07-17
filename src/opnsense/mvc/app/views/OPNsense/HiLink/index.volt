@@ -191,7 +191,7 @@
                     <div class="col-md-12">
                         <div class="alert alert-info">
                             <i class="fa fa-info-circle"></i> {{ lang._('No modems configured. Please add a modem in the settings.') }}
-                            <a href="/ui/hilink/settings" class="btn btn-sm btn-primary pull-right">
+                            <a href="/ui/hilink/index/settings" class="btn btn-sm btn-primary pull-right">
                                 <i class="fa fa-cog"></i> {{ lang._('Go to Settings') }}
                             </a>
                         </div>
