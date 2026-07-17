@@ -159,6 +159,9 @@
                 if ((match = decoded.match(/<dataswitch>([01])<\/dataswitch>/))) {
                     fields.auto_connect = match[1];
                 }
+                if ((match = decoded.match(/<current_profile>(\d+)<\/current_profile>/))) {
+                    fields.active_profile = match[1];
+                }
             });
             return fields;
         }
