@@ -31,11 +31,7 @@ Supported devices:
 EOD
 deps: {
   python313: {origin: lang/python313, version: "3.13"},
-  py313-aiohttp: {origin: www/py-aiohttp, version: "3.9"},
-  py313-xmltodict: {origin: devel/py-xmltodict, version: "0.13"},
-  py313-beautifulsoup: {origin: www/py-beautifulsoup, version: "4.12"},
-  py313-defusedxml: {origin: devel/py-defusedxml, version: "0.7"},
-  py313-rrdtool: {origin: databases/py-rrdtool, version: "0.1"},
+  py313-httpx: {origin: www/py-httpx, version: "0.28"},
   rrdtool: {origin: databases/rrdtool, version: "1.8"}
 }
 scripts: {

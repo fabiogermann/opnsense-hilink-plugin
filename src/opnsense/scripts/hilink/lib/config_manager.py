@@ -6,8 +6,7 @@ Handles loading, saving, and validating configuration
 import os
 import json
 import logging
-import defusedxml
-import defusedxml.ElementTree as DefusedET
+import xml.etree.ElementTree as ET
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -220,7 +219,7 @@ class ConfigManager:
         if xml_file is None:
             xml_file = self.xml_file
         try:
-            tree = DefusedET.parse(xml_file)
+            tree = ET.parse(xml_file)
             root = tree.getroot()
 
             # Find hilink section

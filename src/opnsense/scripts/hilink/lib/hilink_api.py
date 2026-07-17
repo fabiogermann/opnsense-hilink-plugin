@@ -4,22 +4,77 @@ Based on the original HiLinkAPI but with async support and enhanced features
 """
 
 import asyncio
-import aiohttp
+import httpx
 import logging
 import hashlib
 import base64
 import hmac
 import uuid
 import time
-import defusedxml.ElementTree as DefusedET
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
-import xmltodict
-from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+
+import xml.etree.ElementTree as _ET
+from html.parser import HTMLParser as _HTMLParser
+
+
+def _elem_to_dict(elem):
+    """Convert an ElementTree Element to a dict, mimicking xmltodict semantics."""
+    out = {}
+    for k, v in elem.attrib.items():
+        out["@" + k] = v
+    text = (elem.text or "").strip()
+    children = list(elem)
+    if children:
+        for child in children:
+            tag = child.tag
+            if isinstance(tag, str) and "}" in tag:
+                tag = tag.split("}", 1)[1]
+            child_val = _elem_to_dict(child)
+            if tag in out:
+                if not isinstance(out[tag], list):
+                    out[tag] = [out[tag]]
+                out[tag].append(child_val)
+            else:
+                out[tag] = child_val
+        return out
+    return text if text else None
+
+
+def xml_to_dict(xml_text):
+    """Mimic xmltodict.parse(): returns {root_tag: <root content>}."""
+    root = _ET.fromstring(xml_text)
+    tag = root.tag
+    if isinstance(tag, str) and "}" in tag:
+        tag = tag.split("}", 1)[1]
+    return {tag: _elem_to_dict(root)}
+
+
+class _MetaExtractor(_HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.metas = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "meta":
+            self.metas.append(dict(attrs))
+
+
+def _find_meta_content(html_text, name):
+    p = _MetaExtractor()
+    try:
+        p.feed(html_text)
+    except Exception:
+        return None
+    for m in p.metas:
+        if m.get("name") == name:
+            return m.get("content")
+    return None
 
 
 class NetworkMode(Enum):
@@ -175,7 +230,7 @@ class HiLinkModem:
         self.name = name
 
         # Session management
-        self.session: Optional[aiohttp.ClientSession] = None
+        self.session: Optional[httpx.AsyncClient] = None
         self.session_id: Optional[str] = None
         self.request_token: Optional[str] = None
         self.webui_version: Optional[int] = None
@@ -201,9 +256,7 @@ class HiLinkModem:
         if self.session:
             await self.disconnect()
 
-        self.session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=self.timeout)
-        )
+        self.session = httpx.AsyncClient(timeout=self.timeout)
 
         try:
             # Initialize session
@@ -225,7 +278,7 @@ class HiLinkModem:
     async def disconnect(self):
         """Close connection to modem"""
         if self.session:
-            await self.session.close()
+            await self.session.aclose()
             self.session = None
             self.logged_in = False
             logger.info(f"Disconnected from modem {self.name}")
@@ -269,31 +322,22 @@ class HiLinkModem:
             cookies["SessionID"] = self.session_id
 
         try:
-            async with self.session.request(
-                method=method,
-                url=url,
-                data=data,
-                headers=request_headers,
-                cookies=cookies,
-            ) as response:
-                # Update session info from response
-                self._update_session_info(response)
+            response = await self.session.request(
+                method, url, content=data, headers=request_headers, cookies=cookies,
+            )
+            self._update_session_info(response)
+            text = response.text
+            self._check_response_error(text)
+            return text
 
-                text = await response.text()
-
-                # Check for errors
-                self._check_response_error(text)
-
-                return text
-
-        except aiohttp.ClientError as e:
+        except httpx.HTTPError as e:
             raise HiLinkException(f"Request failed: {e}")
 
-    def _update_session_info(self, response: aiohttp.ClientResponse):
+    def _update_session_info(self, response: httpx.Response):
         """Update session ID and request token from response"""
         # Update session ID from cookies
         if "SessionID" in response.cookies:
-            self.session_id = response.cookies["SessionID"].value
+            self.session_id = response.cookies["SessionID"]
 
         # Update request token from headers
         if "__RequestVerificationToken" in response.headers:
@@ -305,7 +349,7 @@ class HiLinkModem:
     def _check_response_error(self, response_text: str):
         """Check response for errors"""
         try:
-            data = xmltodict.parse(response_text)
+            data = xml_to_dict(response_text)
         except Exception:
             # Not XML (e.g. an HTML page) - nothing to check
             return
@@ -327,7 +371,7 @@ class HiLinkModem:
         # Try to get token (WebUI 10/21)
         try:
             response = await self._request("GET", "/api/webserver/token")
-            token_data = xmltodict.parse(response)
+            token_data = xml_to_dict(response)
             if "response" in token_data and "token" in token_data["response"]:
                 token = token_data["response"]["token"]
                 self.request_token = token[-32:]
@@ -338,7 +382,7 @@ class HiLinkModem:
                     response = await self._request(
                         "GET", "/api/device/basic_information"
                     )
-                    device_data = xmltodict.parse(response)
+                    device_data = xml_to_dict(response)
                     if (
                         "response" in device_data
                         and "WebUIVersion" in device_data["response"]
@@ -352,10 +396,9 @@ class HiLinkModem:
             # Try WebUI 17
             try:
                 response = await self._request("GET", "/html/home.html")
-                soup = BeautifulSoup(response, "html.parser")
-                meta = soup.find("meta", {"name": "csrf_token"})
-                if meta:
-                    self.request_token = meta.get("content")
+                content = _find_meta_content(response, "csrf_token")
+                if content:
+                    self.request_token = content
                     self.webui_version = 17
             except:
                 pass  # nosec
@@ -369,7 +412,7 @@ class HiLinkModem:
         """Check if login is required"""
         try:
             response = await self._request("GET", "/api/user/hilink_login")
-            data = xmltodict.parse(response)
+            data = xml_to_dict(response)
 
             if "response" in data and "hilink_login" in data["response"]:
                 hilink_login = int(data["response"]["hilink_login"])
@@ -377,7 +420,7 @@ class HiLinkModem:
 
                 # Get device info to check if it's a wingle/mobile-wifi
                 response = await self._request("GET", "/api/device/basic_information")
-                device_data = xmltodict.parse(response)
+                device_data = xml_to_dict(response)
 
                 if "response" in device_data:
                     device_classify = (
@@ -398,7 +441,7 @@ class HiLinkModem:
         # Check login state first
         password_type = 4
         response = await self._request("GET", "/api/user/state-login")
-        state_data = xmltodict.parse(response)
+        state_data = xml_to_dict(response)
 
         if "response" in state_data:
             state = int(state_data["response"].get("State", -1))
@@ -436,7 +479,7 @@ class HiLinkModem:
         </request>"""
 
         response = await self._request("POST", "/api/user/login", data=xml_data)
-        login_data = xmltodict.parse(response)
+        login_data = xml_to_dict(response)
 
         if "response" not in login_data or login_data["response"] != "OK":
             raise HiLinkException("Login failed")
@@ -445,7 +488,7 @@ class HiLinkModem:
         """Login for WebUI version 10"""
         # Get fresh token
         response = await self._request("GET", "/api/webserver/token")
-        token_data = xmltodict.parse(response)
+        token_data = xml_to_dict(response)
         if "response" in token_data and "token" in token_data["response"]:
             token = token_data["response"]["token"]
             self.request_token = token[-32:]
@@ -464,7 +507,7 @@ class HiLinkModem:
         response = await self._request(
             "POST", "/api/user/challenge_login", data=xml_data
         )
-        challenge_data = xmltodict.parse(response)
+        challenge_data = xml_to_dict(response)
 
         if "response" not in challenge_data:
             raise HiLinkException("Challenge login failed")
@@ -495,7 +538,7 @@ class HiLinkModem:
         response = await self._request(
             "POST", "/api/user/authentication_login", data=xml_data
         )
-        login_data = xmltodict.parse(response)
+        login_data = xml_to_dict(response)
 
         if "response" not in login_data:
             raise HiLinkException("Authentication login failed")
@@ -504,15 +547,15 @@ class HiLinkModem:
         """Get current modem status"""
         # Get device information
         response = await self._request("GET", "/api/device/information")
-        device_data = xmltodict.parse(response)
+        device_data = xml_to_dict(response)
 
         # Get monitoring status
         response = await self._request("GET", "/api/monitoring/status")
-        status_data = xmltodict.parse(response)
+        status_data = xml_to_dict(response)
 
         # Get network info
         response = await self._request("GET", "/api/net/current-plmn")
-        network_data = xmltodict.parse(response)
+        network_data = xml_to_dict(response)
 
         # Parse data
         device_info = device_data.get("response", {})
@@ -564,7 +607,7 @@ class HiLinkModem:
     async def get_signal_info(self) -> SignalInfo:
         """Get signal information"""
         response = await self._request("GET", "/api/device/signal")
-        data = xmltodict.parse(response)
+        data = xml_to_dict(response)
 
         if "response" not in data:
             raise HiLinkException("Failed to get signal info")
@@ -611,7 +654,7 @@ class HiLinkModem:
     async def get_data_usage(self) -> DataUsage:
         """Get data usage statistics"""
         response = await self._request("GET", "/api/monitoring/traffic-statistics")
-        data = xmltodict.parse(response)
+        data = xml_to_dict(response)
 
         if "response" not in data:
             raise HiLinkException("Failed to get data usage")
@@ -620,7 +663,7 @@ class HiLinkModem:
 
         # Get monthly statistics
         response = await self._request("GET", "/api/monitoring/month_statistics")
-        month_data = xmltodict.parse(response)
+        month_data = xml_to_dict(response)
 
         monthly_stats = month_data.get("response", {})
 
@@ -694,7 +737,7 @@ class HiLinkModem:
         """Set network mode"""
         # Get current band settings
         response = await self._request("GET", "/api/net/net-mode")
-        data = xmltodict.parse(response)
+        data = xml_to_dict(response)
 
         if "response" not in data:
             return False
@@ -720,7 +763,7 @@ class HiLinkModem:
         """Enable or disable roaming"""
         # Get current connection settings
         response = await self._request("GET", "/api/dialup/connection")
-        data = xmltodict.parse(response)
+        data = xml_to_dict(response)
 
         if "response" not in data:
             return False
@@ -767,13 +810,13 @@ class HiLinkModem:
         settings: Dict[str, Any] = {}
 
         response = await self._request("GET", "/api/net/net-mode")
-        data = xmltodict.parse(response)
+        data = xml_to_dict(response)
         if "response" in data and data["response"]:
             mode = str(data["response"].get("NetworkMode", "00"))
             settings["network_mode"] = self.NETWORK_MODE_TO_CONFIG.get(mode, "auto")
 
         response = await self._request("GET", "/api/dialup/connection")
-        data = xmltodict.parse(response)
+        data = xml_to_dict(response)
         if "response" in data and data["response"]:
             conn = data["response"]
             settings["roaming_enabled"] = (
@@ -784,7 +827,7 @@ class HiLinkModem:
             settings["auto_connect"] = str(conn.get("ConnectMode", "0")) == "0"
 
         response = await self._request("GET", "/api/device/information")
-        data = xmltodict.parse(response)
+        data = xml_to_dict(response)
         if "response" in data and data["response"]:
             settings["device_name"] = data["response"].get("DeviceName", "")
 

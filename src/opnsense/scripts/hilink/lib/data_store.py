@@ -6,13 +6,82 @@ Handles RRD database operations and historical data management
 import os
 import time
 import logging
-import rrdtool
+import subprocess
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+def _rrd_run(args, want_output=False):
+    """Run the rrdtool CLI; raise on failure (callers wrap in try/except)."""
+    proc = subprocess.run(
+        ["rrdtool", *args], capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"rrdtool {' '.join(args[:1])} failed: {proc.stderr.strip()}")
+    return proc.stdout if want_output else None
+
+
+def _rrd_fetch(args):
+    """Mimic the rrdtool.fetch() binding: return ((start, end, step), ds_names, rows)."""
+    out = _rrd_run(args, want_output=True)
+    lines = [ln for ln in out.splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return ((0, 0, 0), [], [])
+    ds_names = lines[0].split()
+    rows = []
+    first_ts = None
+    prev_ts = None
+    for ln in lines[1:]:
+        if ":" not in ln:
+            continue
+        ts_str, rest = ln.split(":", 1)
+        try:
+            ts = int(ts_str.strip())
+        except ValueError:
+            continue
+        if first_ts is None:
+            first_ts = ts
+        step = (ts - prev_ts) if prev_ts is not None else 0
+        prev_ts = ts
+        vals = []
+        for v in rest.split():
+            if v in ("nan", "-nan", "-nan%"):
+                vals.append(None)
+            else:
+                try:
+                    vals.append(float(v))
+                except ValueError:
+                    vals.append(None)
+        rows.append(tuple(vals))
+    step = step if first_ts is not None else 0
+    end = prev_ts + step if prev_ts is not None else 0
+    return ((first_ts or 0, end, step), ds_names, rows)
+
+
+def _rrd_info(path):
+    """Mimic the rrdtool.info() binding: return a dict."""
+    out = _rrd_run(["info", path], want_output=True)
+    info = {}
+    for ln in out.splitlines():
+        if "=" not in ln:
+            continue
+        k, v = ln.split("=", 1)
+        k = k.strip(); v = v.strip()
+        if v.startswith('"') and v.endswith('"'):
+            info[k] = v[1:-1]
+        else:
+            try:
+                info[k] = int(v)
+            except ValueError:
+                try:
+                    info[k] = float(v)
+                except ValueError:
+                    info[k] = v
+    return info
 
 
 @dataclass

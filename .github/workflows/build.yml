@@ -76,33 +76,10 @@ jobs:
         sudo make install
     
     - name: Build package
-      id: buildpkg
       run: |
-        { make clean; make build; make package VERSION=${{ env.VERSION }}; } 2>&1 | tee /tmp/build_pkg.log
-    
-    - name: Debug — save build log via API
-      if: always()
-      continue-on-error: true
-      run: |
-        {
-          echo "=== build_pkg.log ==="
-          cat /tmp/build_pkg.log 2>/dev/null || echo "(no build log)"
-          echo ""
-          echo "=== dist/ contents ==="
-          ls -la dist/ 2>/dev/null || echo "(no dist dir)"
-          echo ""
-          echo "=== pkg binary ==="
-          command -v pkg && pkg -v 2>&1 || echo "pkg not found"
-          echo ""
-          echo "=== manual checksums attempt ==="
-          ( cd dist 2>/dev/null && sha256sum *.pkg 2>&1; echo "exit=$?" ) || echo "cd dist failed"
-        } > /tmp/debug.log
-        B64=$(base64 -w0 < /tmp/debug.log)
-        curl -s -X PUT \
-          -H "Authorization: Bearer ${{ github.token }}" \
-          -H "Accept: application/vnd.github+json" \
-          "https://api.github.com/repos/${{ github.repository }}/contents/build_logs/v${{ env.VERSION }}.log" \
-          -d "{\"message\":\"ci-debug: log for v${{ env.VERSION }}\",\"content\":\"$B64\"}"
+        make clean
+        make build
+        make package VERSION=${{ env.VERSION }}
     
     - name: Generate checksums
       run: |
