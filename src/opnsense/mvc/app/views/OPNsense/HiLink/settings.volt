@@ -268,6 +268,11 @@
 {{ partial("layout_partials/base_dialog",['fields':formDialogModem,'id':'DialogModem','label':lang._('Edit modem')]) }}
 
 {# First-use wizard: import existing modem settings or start with defaults #}
+<style>
+#HiLinkWizard .modal-header { padding: 12px 20px; }
+#HiLinkWizard .modal-body { padding: 20px; }
+#HiLinkWizard .modal-footer { padding: 12px 20px; }
+</style>
 <div class="modal fade" id="HiLinkWizard" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false" aria-labelledby="HiLinkWizardTitle">
     <div class="modal-dialog" role="document">
         <div class="modal-content">
