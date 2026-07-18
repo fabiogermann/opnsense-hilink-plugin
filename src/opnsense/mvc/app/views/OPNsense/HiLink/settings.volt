@@ -23,34 +23,35 @@
             toggle: '/api/hilink/settings/toggleModem/'
         });
 
-        // Populate the "Active APN profile" dropdown live from the modem.
-        // The form field is a text input (TextField in the model); we hide it
-        // and put a real <select> with profile names next to it. The hidden
-        // input is what the form system reads/saves; the select is the UX layer.
-        $('#DialogModem').on('shown.bs.modal', function() {
-            if (!editModemUuid) {
-                return; // adding a new modem — no live profile list yet
-            }
+        // Replace the "Active APN profile" text input with a named dropdown.
+        // The form field stays as text (TextField in the model) to avoid
+        // setFormData crashes; we hide it and add a visible <select> populated
+        // live from the modem's profile list. The API resolves to the first
+        // enabled modem when no modem_uuid is passed, so we don't need to
+        // capture the UUID from the edit click.
+        function setupProfileDropdown() {
             var $input = $('#modem\\.active_profile');
+            if ($input.length === 0 || $input.data('profile-setup')) {
+                return; // not in DOM yet, or already set up
+            }
+            $input.data('profile-setup', true);
             var currentVal = $input.val() || '';
 
-            // Hide the text input, add a visible select next to it (once)
+            // Hide the text input, add a visible select next to it
             $input.hide();
-            if ($('#active_profile_select').length === 0) {
-                var $sel = $('<select/>')
-                    .attr('id', 'active_profile_select')
-                    .addClass('form-control')
-                    .insertAfter($input);
-                // Sync: select change → hidden input value
-                $sel.on('change', function() {
-                    $input.val($(this).val());
-                });
-            }
+            var $sel = $('<select/>')
+                .attr('id', 'active_profile_select')
+                .addClass('form-control')
+                .insertAfter($input);
+            $sel.append($('<option/>').val('').text('(keep current)'));
 
-            var $sel = $('#active_profile_select');
-            $sel.empty().append($('<option/>').val('').text('(keep current)'));
+            // Sync: select change → hidden input value
+            $sel.on('change', function() {
+                $input.val($(this).val());
+            });
 
-            ajaxGet('/api/hilink/monitor/profiles', {'modem_uuid': editModemUuid}, function(data, status) {
+            // Populate live from the modem
+            ajaxGet('/api/hilink/monitor/profiles', {}, function(data, status) {
                 if (status !== 'success' || !data || data['status'] !== 'ok') {
                     return;
                 }
@@ -65,7 +66,16 @@
                     $sel.append($opt);
                 });
             });
+        }
+
+        // Watch for the dialog to appear and the input to be populated,
+        // then transform it. Covers both add and edit flows.
+        var profileObserver = new MutationObserver(function() {
+            if ($('#DialogModem').hasClass('in')) {
+                setupProfileDropdown();
+            }
         });
+        profileObserver.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
 
         /**
          * Import a modem from a nvram.bak backup file
