@@ -23,22 +23,33 @@
             toggle: '/api/hilink/settings/toggleModem/'
         });
 
-        // Populate the "Active APN profile" dropdown live from the modem
+        // Populate the "Active APN profile" dropdown live from the modem.
+        // The form field is a text input (TextField in the model); we hide it
+        // and put a real <select> with profile names next to it. The hidden
+        // input is what the form system reads/saves; the select is the UX layer.
         $('#DialogModem').on('shown.bs.modal', function() {
             if (!editModemUuid) {
                 return; // adding a new modem — no live profile list yet
             }
-            // Replace the text input with a select for better UX, then
-            // populate it live from the modem's profile list.
             var $input = $('#modem\\.active_profile');
             var currentVal = $input.val() || '';
-            if ($input.is('input')) {
-                var $sel = $('<select/>').attr('id', 'modem.active_profile').attr('name', 'modem.active_profile').addClass('form-control');
-                $sel.append($('<option/>').val('').text('(keep current)'));
-                $input.replaceWith($sel);
+
+            // Hide the text input, add a visible select next to it (once)
+            $input.hide();
+            if ($('#active_profile_select').length === 0) {
+                var $sel = $('<select/>')
+                    .attr('id', 'active_profile_select')
+                    .addClass('form-control')
+                    .insertAfter($input);
+                // Sync: select change → hidden input value
+                $sel.on('change', function() {
+                    $input.val($(this).val());
+                });
             }
-            var $sel = $('#modem\\.active_profile');
-            $sel.find('option').not(':first').remove();
+
+            var $sel = $('#active_profile_select');
+            $sel.empty().append($('<option/>').val('').text('(keep current)'));
+
             ajaxGet('/api/hilink/monitor/profiles', {'modem_uuid': editModemUuid}, function(data, status) {
                 if (status !== 'success' || !data || data['status'] !== 'ok') {
                     return;
@@ -48,7 +59,9 @@
                     var label = p['Name'] || ('Profile ' + p['Index']);
                     if (p['Apn']) { label += ' (' + p['Apn'] + ')'; }
                     var $opt = $('<option/>').val(p['Index']).text(label);
-                    if (p['Index'] === active) { $opt.prop('selected', true); }
+                    if (p['Index'] === active || p['Index'] === currentVal) {
+                        $opt.prop('selected', true);
+                    }
                     $sel.append($opt);
                 });
             });
