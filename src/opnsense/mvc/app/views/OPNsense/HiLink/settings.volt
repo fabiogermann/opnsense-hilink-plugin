@@ -24,32 +24,34 @@
         });
 
         // Populate the "Active APN profile" dropdown live from the modem
-        // when editing an existing modem. The API resolves to the first
-        // enabled modem when no modem_uuid is passed.
         $('#DialogModem').on('shown.bs.modal', function() {
-            try {
-                var $sel = $('#modem\\.active_profile');
-                $sel.find('option').not(':first').remove();
-                ajaxGet('/api/hilink/monitor/profiles', {}, function(data, status) {
-                    if (status !== 'success' || !data || data['status'] !== 'ok') {
-                        return;
-                    }
-                    var active = data['active'] || '';
-                    (data['profiles'] || []).forEach(function(p) {
-                        var label = p['Name'] || ('Profile ' + p['Index']);
-                        if (p['Apn']) { label += ' (' + p['Apn'] + ')'; }
-                        var $opt = $('<option/>').val(p['Index']).text(label);
-                        if (p['Index'] === active) { $opt.prop('selected', true); }
-                        $sel.append($opt);
-                    });
-                    // bootstrap-select widget needs a refresh to show new options
-                    if ($sel.hasClass('selectpicker')) {
-                        $sel.selectpicker('refresh');
-                    }
-                });
-            } catch(e) {
-                console.warn('Profile dropdown population failed:', e);
+            if (!editModemUuid) {
+                return; // adding a new modem — no live profile list yet
             }
+            // Replace the text input with a select for better UX, then
+            // populate it live from the modem's profile list.
+            var $input = $('#modem\\.active_profile');
+            var currentVal = $input.val() || '';
+            if ($input.is('input')) {
+                var $sel = $('<select/>').attr('id', 'modem.active_profile').attr('name', 'modem.active_profile').addClass('form-control');
+                $sel.append($('<option/>').val('').text('(keep current)'));
+                $input.replaceWith($sel);
+            }
+            var $sel = $('#modem\\.active_profile');
+            $sel.find('option').not(':first').remove();
+            ajaxGet('/api/hilink/monitor/profiles', {'modem_uuid': editModemUuid}, function(data, status) {
+                if (status !== 'success' || !data || data['status'] !== 'ok') {
+                    return;
+                }
+                var active = data['active'] || currentVal;
+                (data['profiles'] || []).forEach(function(p) {
+                    var label = p['Name'] || ('Profile ' + p['Index']);
+                    if (p['Apn']) { label += ' (' + p['Apn'] + ')'; }
+                    var $opt = $('<option/>').val(p['Index']).text(label);
+                    if (p['Index'] === active) { $opt.prop('selected', true); }
+                    $sel.append($opt);
+                });
+            });
         });
 
         /**

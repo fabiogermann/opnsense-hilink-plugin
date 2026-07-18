@@ -108,9 +108,9 @@
     <field>
         <id>modem.active_profile</id>
         <label>Active APN profile</label>
-        <type>dropdown</type>
+        <type>text</type>
         <advanced>true</advanced>
-        <help>APN profile to activate on the modem. Populated live from the modem's profile list when editing an existing modem; leave empty to keep the current profile.</help>
+        <help>APN profile index to activate on the modem (from the modem's profile list). Leave empty to keep the current profile.</help>
     </field>
     <field>
         <id>modem.collect_interval</id>
