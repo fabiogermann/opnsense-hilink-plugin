@@ -212,11 +212,18 @@ class MonitorController extends ApiControllerBase
         }
 
         $backend = new Backend();
-        $response = $backend->configdpRun('hilink ' . $command, [$modemUuid]);
+        $response = (string)$backend->configdpRun('hilink ' . $command, [$modemUuid]);
+
+        // hilink_control.py reports {"status": "ok|error", ...}; propagate the
+        // real outcome instead of claiming success unconditionally.
+        $data = json_decode($response, true);
+        $ok = is_array($data) && ($data['status'] ?? '') === 'ok';
 
         return [
-            'status' => 'ok',
-            'message' => ucfirst($command) . ' command sent',
+            'status' => $ok ? 'ok' : 'error',
+            'message' => $ok
+                ? ucfirst($command) . ' command sent'
+                : ($data['message'] ?? ucfirst($command) . ' command failed'),
             'response' => $response,
         ];
     }

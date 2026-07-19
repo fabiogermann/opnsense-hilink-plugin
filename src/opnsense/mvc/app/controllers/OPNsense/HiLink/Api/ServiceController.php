@@ -83,7 +83,11 @@ class ServiceController extends ApiMutableServiceControllerBase
         if ($this->request->isPost()) {
             $backend = new Backend();
             $response = (string)$backend->configdRun('hilink test');
-            $success = strpos($response, 'success') !== false;
+
+            // hilink_control.py prints a JSON document; parse it rather than
+            // substring-matching the raw output.
+            $data = json_decode($response, true);
+            $success = is_array($data) && ($data['status'] ?? '') === 'success';
 
             return [
                 'status' => $success ? 'ok' : 'error',
