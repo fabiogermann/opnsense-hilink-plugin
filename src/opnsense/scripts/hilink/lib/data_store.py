@@ -1,15 +1,18 @@
 """
 Data store for HiLink plugin
 Handles RRD database operations and historical data management
+
+Uses the rrdtool CLI (declared package dependency) rather than the Python
+rrdtool binding, which is not part of the OPNsense stock package set.
 """
 
 import os
 import time
 import logging
 import subprocess
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -134,8 +137,9 @@ class DataStore:
         Args:
             base_path: Optional custom base path for RRD files
         """
+        # Create on first write, not on construction, so read-only callers
+        # (e.g. `hilink_control.py metrics`) don't create directories.
         self.base_path = Path(base_path or self.RRD_BASE_PATH)
-        self.base_path.mkdir(parents=True, exist_ok=True)
 
         # Cache for RRD file paths
         self._rrd_files: Dict[str, Path] = {}
@@ -173,21 +177,26 @@ class DataStore:
             return True
 
         try:
+            self.base_path.mkdir(parents=True, exist_ok=True)
+
             # Build data source definitions
             ds_defs = []
             for name, config in self.DATA_SOURCES.items():
                 ds_def = f"DS:{name}:{config['type']}:{config['heartbeat']}:{config['min']}:{config['max']}"
                 ds_defs.append(ds_def)
 
-            # Create RRD
-            rrdtool.create(
-                str(rrd_path),
-                "--start",
-                "now-1h",
-                "--step",
-                str(self.RRD_STEP),
-                *ds_defs,
-                *self.RRA_DEFINITIONS,
+            # Create RRD via the rrdtool CLI
+            _rrd_run(
+                [
+                    "create",
+                    str(rrd_path),
+                    "--start",
+                    "now-1h",
+                    "--step",
+                    str(self.RRD_STEP),
+                    *ds_defs,
+                    *self.RRA_DEFINITIONS,
+                ]
             )
 
             logger.info(f"Created RRD for modem {modem_uuid} at {rrd_path}")
@@ -228,7 +237,7 @@ class DataStore:
             ]
 
             # Update RRD
-            rrdtool.update(str(rrd_path), ":".join(values))
+            _rrd_run(["update", str(rrd_path), ":".join(values)])
 
             logger.debug(f"Updated RRD for modem {modem_uuid}")
             return True
@@ -270,15 +279,18 @@ class DataStore:
                 start_time = end_time - 3600  # 1 hour ago
 
             # Fetch data
-            result = rrdtool.fetch(
-                str(rrd_path),
-                "AVERAGE",
-                "--start",
-                str(start_time),
-                "--end",
-                str(end_time),
-                "--resolution",
-                str(resolution) if resolution else "30",
+            result = _rrd_fetch(
+                [
+                    "fetch",
+                    str(rrd_path),
+                    "AVERAGE",
+                    "--start",
+                    str(start_time),
+                    "--end",
+                    str(end_time),
+                    "--resolution",
+                    str(resolution) if resolution else "30",
+                ]
             )
 
             # Parse result
@@ -328,7 +340,7 @@ class DataStore:
 
         try:
             # Get last update info
-            info = rrdtool.info(str(rrd_path))
+            info = _rrd_info(str(rrd_path))
             last_update = info.get("last_update", 0)
 
             # Fetch last data point
@@ -615,7 +627,7 @@ class DataStore:
                 graph_args.extend(["--lower-limit", str(lower_limit)])
 
             # Generate graph
-            rrdtool.graph(*graph_args)
+            _rrd_run(["graph", *graph_args])
 
             logger.info(f"Generated graph at {output_path}")
             return True

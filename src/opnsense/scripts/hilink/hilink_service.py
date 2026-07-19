@@ -103,9 +103,13 @@ class ModemManager:
                 "No Service": 0,
                 "2G": 1,
                 "GSM": 1,
+                "1xRTT": 1,
+                "3xRTT": 1,
                 "3G": 2,
                 "WCDMA": 2,
                 "UMTS": 2,
+                "EV-DO": 2,
+                "1xEV-DV": 2,
                 "4G": 3,
                 "LTE": 3,
                 "5G": 4,
@@ -229,9 +233,15 @@ class ModemManager:
                     self.config.lte_band, self.config.network_band
                 )
 
-            # Auto-disconnect after N idle minutes (0 = disabled)
-            if self.config.auto_disconnect_min:
-                await self.modem.set_auto_disconnect(self.config.auto_disconnect_min)
+            # Auto-disconnect after N idle minutes (0 = disabled).
+            # auto_disconnect_min is the managed setting; max_idle_time
+            # (seconds, legacy/imported) is honoured as a fallback so values
+            # imported by earlier wizard versions are not silently ignored.
+            idle_min = self.config.auto_disconnect_min or (
+                self.config.max_idle_time // 60
+            )
+            if idle_min:
+                await self.modem.set_auto_disconnect(idle_min)
 
             # Network search mode (auto/manual PLMN)
             if self.config.network_search:
@@ -282,6 +292,11 @@ class HiLinkService:
             logger.error(f"Configuration validation errors: {errors}")
             return False
 
+        # Apply configured log verbosity (General -> debug_logging)
+        if self.config_manager.general.debug_logging:
+            logging.getLogger().setLevel(logging.DEBUG)
+            logger.debug("Debug logging enabled via configuration")
+
         # Initialize modem managers
         for modem_config in self.config_manager.modems:
             if modem_config.enabled:
@@ -318,8 +333,9 @@ class HiLinkService:
 
         while self.running:
             try:
-                # Collect metrics from all modems
-                for manager in self.modem_managers.values():
+                # Collect metrics from all modems. Iterate a snapshot: the
+                # config reload task may add/remove entries during our awaits.
+                for manager in list(self.modem_managers.values()):
                     if manager.config.enabled:
                         # Check if it's time to collect
                         time_since_last = (
@@ -351,6 +367,15 @@ class HiLinkService:
 
                 # Reload configuration
                 if self.config_manager.load():
+                    # Reflect debug_logging changes without a service restart.
+                    # Note: this follows the config, so it can also clear the
+                    # effect of a manual --debug start after 60s.
+                    logging.getLogger().setLevel(
+                        logging.DEBUG
+                        if self.config_manager.general.debug_logging
+                        else logging.INFO
+                    )
+
                     # Check for changes
                     current_uuids = set(self.modem_managers.keys())
                     new_uuids = set(

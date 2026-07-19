@@ -9,11 +9,12 @@ import logging
 import hashlib
 import base64
 import hmac
+import re
 import uuid
-import time
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
+from xml.sax.saxutils import escape as _xml_escape
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -239,8 +240,6 @@ class HiLinkModem:
 
         # Device info cache
         self._device_info: Dict[str, Any] = {}
-        self._last_status_update: float = 0
-        self._status_cache_ttl: float = 5.0  # Cache for 5 seconds
 
     async def __aenter__(self):
         """Async context manager entry"""
@@ -470,10 +469,11 @@ class HiLinkModem:
         auth_hash = hashlib.sha256(auth_string.encode()).hexdigest()
         auth_base64 = base64.b64encode(bytes.fromhex(auth_hash)).decode()
 
-        # Build login XML
+        # Build login XML (username is escaped: config values may contain
+        # characters that would otherwise break the request body)
         xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
         <request>
-            <Username>{self.username}</Username>
+            <Username>{_xml_escape(self.username)}</Username>
             <Password>{auth_base64}</Password>
             <password_type>{password_type}</password_type>
         </request>"""
@@ -499,7 +499,7 @@ class HiLinkModem:
         # Challenge login
         xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
         <request>
-            <username>{self.username}</username>
+            <username>{_xml_escape(self.username)}</username>
             <firstnonce>{client_nonce}</firstnonce>
             <mode>1</mode>
         </request>"""
@@ -557,13 +557,15 @@ class HiLinkModem:
         response = await self._request("GET", "/api/net/current-plmn")
         network_data = xml_to_dict(response)
 
-        # Parse data
-        device_info = device_data.get("response", {})
-        status_info = status_data.get("response", {})
-        network_info = network_data.get("response", {})
+        # Parse data (empty <response/> elements arrive as None, not {})
+        device_info = device_data.get("response") or {}
+        status_info = status_data.get("response") or {}
+        network_info = network_data.get("response") or {}
 
-        # Determine connection status
-        connection_status_code = int(status_info.get("ConnectionStatus", "0"))
+        # Determine connection status (modem may return suffixed/empty values)
+        connection_status_code = (
+            self._parse_num(status_info.get("ConnectionStatus")) or 0
+        )
         if connection_status_code == 901:
             connection_status = ConnectionStatus.CONNECTED
             connected = True
@@ -600,7 +602,7 @@ class HiLinkModem:
             device_name=device_info.get("DeviceName", "Unknown"),
             imei=device_info.get("Imei", ""),
             iccid=device_info.get("Iccid", ""),
-            connection_time=int(status_info.get("CurrentConnectTime", "0")),
+            connection_time=self._parse_num(status_info.get("CurrentConnectTime")) or 0,
             roaming=status_info.get("RoamingStatus", "0") == "1",
         )
 
@@ -612,12 +614,17 @@ class HiLinkModem:
         if "response" not in data:
             raise HiLinkException("Failed to get signal info")
 
-        signal_data = data["response"]
+        signal_data = data.get("response") or {}
 
-        # Parse signal strength
-        rssi = int(signal_data.get("rssi", "0"))
-        if rssi > 0:
-            rssi = -113 + (rssi * 2)  # Convert to dBm
+        # Parse signal strength. Firmware returns either a plain dBm value
+        # ("-75" or "-75dBm") or a positive CSQ value (0-31) that needs
+        # converting. A missing/unparseable value means "no reading" and must
+        # not be treated as 0 dBm (which would report full bars).
+        rssi = self._parse_num(signal_data.get("rssi"))
+        if rssi is None:
+            rssi = -113  # no reading -> report worst case, not "excellent"
+        elif rssi >= 0:
+            rssi = -113 + (rssi * 2)  # Convert CSQ to dBm
 
         # Determine signal quality
         if rssi >= -65:
@@ -641,14 +648,14 @@ class HiLinkModem:
 
         return SignalInfo(
             rssi=rssi,
-            rsrp=self._parse_int(signal_data.get("rsrp")),
-            rsrq=self._parse_int(signal_data.get("rsrq")),
-            sinr=self._parse_int(signal_data.get("sinr")),
+            rsrp=self._parse_num(signal_data.get("rsrp")),
+            rsrq=self._parse_num(signal_data.get("rsrq")),
+            sinr=self._parse_num(signal_data.get("sinr")),
             signal_bars=bars,
             signal_quality=quality,
-            cell_id=self._parse_int(signal_data.get("cell_id")),
+            cell_id=self._parse_num(signal_data.get("cell_id")),
             band=signal_data.get("band"),
-            frequency=self._parse_int(signal_data.get("arfcn")),
+            frequency=self._parse_num(signal_data.get("arfcn")),
         )
 
     async def get_data_usage(self) -> DataUsage:
@@ -659,18 +666,18 @@ class HiLinkModem:
         if "response" not in data:
             raise HiLinkException("Failed to get data usage")
 
-        traffic_data = data["response"]
+        traffic_data = data.get("response") or {}
 
         # Get monthly statistics
         response = await self._request("GET", "/api/monitoring/month_statistics")
         month_data = xml_to_dict(response)
 
-        monthly_stats = month_data.get("response", {})
+        monthly_stats = month_data.get("response") or {}
 
-        session_upload = int(traffic_data.get("CurrentUpload", "0"))
-        session_download = int(traffic_data.get("CurrentDownload", "0"))
-        total_upload = int(traffic_data.get("TotalUpload", "0"))
-        total_download = int(traffic_data.get("TotalDownload", "0"))
+        session_upload = self._parse_num(traffic_data.get("CurrentUpload")) or 0
+        session_download = self._parse_num(traffic_data.get("CurrentDownload")) or 0
+        total_upload = self._parse_num(traffic_data.get("TotalUpload")) or 0
+        total_download = self._parse_num(traffic_data.get("TotalDownload")) or 0
 
         return DataUsage(
             session_upload=session_upload,
@@ -679,11 +686,13 @@ class HiLinkModem:
             total_upload=total_upload,
             total_download=total_download,
             total_total=total_upload + total_download,
-            monthly_upload=int(monthly_stats.get("CurrentMonthUpload", "0")),
-            monthly_download=int(monthly_stats.get("CurrentMonthDownload", "0")),
+            monthly_upload=self._parse_num(monthly_stats.get("CurrentMonthUpload")) or 0,
+            monthly_download=(
+                self._parse_num(monthly_stats.get("CurrentMonthDownload")) or 0
+            ),
             monthly_total=(
-                int(monthly_stats.get("CurrentMonthUpload", "0"))
-                + int(monthly_stats.get("CurrentMonthDownload", "0"))
+                (self._parse_num(monthly_stats.get("CurrentMonthUpload")) or 0)
+                + (self._parse_num(monthly_stats.get("CurrentMonthDownload")) or 0)
             ),
         )
 
@@ -948,7 +957,8 @@ class HiLinkModem:
         try:
             response = await self._request("GET", "/api/dialup/profiles")
             data = xml_to_dict(response)
-            profiles = data.get("response", {}).get("Profiles", {}).get("Profile", [])
+            resp = data.get("response") or {}
+            profiles = (resp.get("Profiles") or {}).get("Profile") or []
             if isinstance(profiles, dict):
                 profiles = [profiles]
             elif not isinstance(profiles, list):
@@ -976,7 +986,9 @@ class HiLinkModem:
         try:
             response = await self._request("GET", "/api/dialup/profiles")
             data = xml_to_dict(response)
-            return str(data.get("response", {}).get("Profiles", {}).get("CurrentProfile", ""))
+            resp = data.get("response") or {}
+            profiles = resp.get("Profiles") or {}
+            return str(profiles.get("CurrentProfile") or "")
         except HiLinkException as e:
             logger.error(f"Failed to get active profile for modem {self.name}: {e}")
             return ""
@@ -991,7 +1003,8 @@ class HiLinkModem:
         try:
             response = await self._request("GET", "/api/dialup/profiles")
             data = xml_to_dict(response)
-            profiles = data.get("response", {}).get("Profiles", {}).get("Profile", [])
+            resp = data.get("response") or {}
+            profiles = (resp.get("Profiles") or {}).get("Profile") or []
             if isinstance(profiles, dict):
                 profiles = [profiles]
             elif not isinstance(profiles, list):
@@ -1011,10 +1024,11 @@ class HiLinkModem:
                 "DialNumber", "IpType",
             ]
             body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<request>"
-            body += f"<Profiles><CurrentProfile>{profile_index}</CurrentProfile>"
+            body += f"<Profiles><CurrentProfile>{_xml_escape(str(profile_index))}</CurrentProfile>"
             body += "<Profile>"
             for f in fields:
-                body += f"<{f}>{target.get(f, '')}</{f}>"
+                # values come from the modem and may contain XML metacharacters
+                body += f"<{f}>{_xml_escape(str(target.get(f, '')))}</{f}>"
             body += "</Profile></Profiles>"
             body += "</request>"
 
@@ -1059,7 +1073,7 @@ class HiLinkModem:
             settings["roaming_enabled"] = (
                 str(conn.get("RoamAutoConnectEnable", "0")) == "1"
             )
-            idle_seconds = self._parse_int(conn.get("MaxIdelTime")) or 0
+            idle_seconds = self._parse_num(conn.get("MaxIdelTime")) or 0
             settings["max_idle_time"] = idle_seconds
             settings["auto_disconnect_min"] = idle_seconds // 60
             # ConnectMode 0 means the modem dials automatically
@@ -1080,6 +1094,18 @@ class HiLinkModem:
             return int(value)
         except (ValueError, TypeError):
             return None
+
+    def _parse_num(self, value: Any) -> Optional[int]:
+        """Extract the first signed integer from a modem response value.
+
+        HiLink firmware is inconsistent: numeric fields may carry unit
+        suffixes ("-75dBm", "15dB") or arrive empty. Returns None when no
+        digits are present.
+        """
+        if value is None:
+            return None
+        match = re.search(r"-?\d+", str(value))
+        return int(match.group()) if match else None
 
 
 # Example usage and testing
