@@ -56,7 +56,7 @@ version:
 .PHONY: dev-setup
 dev-setup:
 	@echo "$(YELLOW)Setting up development environment...$(NC)"
-	$(PIP) install -r requirements.txt
+	$(PIP) install -r requirements-dev.txt
 	@echo "$(GREEN)✓ Development environment ready$(NC)"
 
 # Build target
@@ -239,10 +239,8 @@ dev-server:
 .PHONY: check-deps
 check-deps:
 	@echo "$(YELLOW)Checking dependencies...$(NC)"
-	@$(PYTHON) -c "import aiohttp" 2>/dev/null || echo "$(RED)✗ aiohttp not installed$(NC)"
-	@$(PYTHON) -c "import xmltodict" 2>/dev/null || echo "$(RED)✗ xmltodict not installed$(NC)"
-	@$(PYTHON) -c "import bs4" 2>/dev/null || echo "$(RED)✗ beautifulsoup4 not installed$(NC)"
-	@$(PYTHON) -c "import rrdtool" 2>/dev/null || echo "$(RED)✗ rrdtool not installed$(NC)"
+	@$(PYTHON) -c "import httpx" 2>/dev/null || echo "$(RED)✗ httpx not installed$(NC)"
+	@command -v rrdtool >/dev/null 2>&1 || echo "$(RED)✗ rrdtool CLI not installed$(NC)"
 	@echo "$(GREEN)✓ Dependency check complete$(NC)"
 
 # Create release
@@ -250,8 +248,8 @@ check-deps:
 release: clean test package
 	@echo "$(YELLOW)Creating release $(VERSION)...$(NC)"
 	@mkdir -p releases
-	@cp $(DIST_DIR)/$(PLUGIN_NAME)-$(VERSION).txz releases/
-	@cd releases && sha256sum $(PLUGIN_NAME)-$(VERSION).txz > $(PLUGIN_NAME)-$(VERSION).txz.sha256
+	@cp $(DIST_DIR)/$(PLUGIN_NAME)-$(VERSION).pkg releases/
+	@cd releases && sha256sum $(PLUGIN_NAME)-$(VERSION).pkg > $(PLUGIN_NAME)-$(VERSION).pkg.sha256
 	@echo "$(GREEN)✓ Release created in releases/$(NC)"
 
 # Install Python dependencies

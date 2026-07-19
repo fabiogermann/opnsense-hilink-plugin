@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.10', '3.11']
+        # 3.11 = lowest supported, 3.13 = what OPNsense ships on-box
+        python-version: ['3.11', '3.13']
     
     steps:
     - uses: actions/checkout@v4
@@ -29,8 +30,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-asyncio
+        pip install -r requirements-dev.txt
     
     - name: Check code formatting
       run: |
@@ -69,6 +69,8 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    env:
+      SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
     
     steps:
     - uses: actions/checkout@v4
@@ -80,9 +82,31 @@ jobs:
         bandit -r src/
     
     - name: Run Safety CLI to check for vulnerabilities
+      # skipped automatically when the secret is not configured (e.g. forks)
+      if: ${{ env.SAFETY_API_KEY != '' }}
       uses: pyupio/safety-action@v1
       with:
         api-key: ${{ secrets.SAFETY_API_KEY }}
+
+  php-lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+    
+    - name: Lint PHP controllers and model
+      run: |
+        find src -name "*.php" -print0 | xargs -0 -n1 php -l
+    
+    - name: Validate XML files
+      run: |
+        sudo apt-get update && sudo apt-get install -y libxml2-utils
+        find src -name "*.xml" -print0 | xargs -0 -n1 xmllint --noout
 
   integration:
     runs-on: ubuntu-latest
