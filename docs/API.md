@@ -1,687 +1,151 @@
-# HiLink Plugin API Documentation
+# HiLink Plugin API
 
-## Overview
+REST API exposed by the plugin under `/api/hilink/`. All endpoints require
+standard OPNsense authentication (session cookie or API key) and the
+`page-services-hilink` privilege.
 
-The HiLink plugin provides a RESTful API for managing and monitoring Huawei HiLink modems. All API endpoints require authentication using OPNsense's built-in authentication system.
+Responses are JSON. Success responses use `"status": "ok"`; failures use
+`"status": "error"` or `{"error": "..."}` depending on the endpoint.
 
-## Authentication
+## Service — `/api/hilink/service/`
 
-### API Key Authentication
-```bash
-curl -X GET https://your-opnsense/api/hilink/monitor/status \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-### Session Authentication
-```bash
-# Login
-curl -X POST https://your-opnsense/api/core/auth/login \
-  -d "username=admin&password=yourpassword" \
-  -c cookies.txt
-
-# Use session
-curl -X GET https://your-opnsense/api/hilink/monitor/status \
-  -b cookies.txt
-```
-
-## Base URL
-
-```
-https://your-opnsense/api/hilink
-```
-
-## Response Format
-
-All responses are in JSON format:
+### `GET /api/hilink/service/status`
+Service state from configd plus the enabled flag from the model.
 
 ```json
-{
-  "status": "success|error",
-  "data": {},
-  "message": "Optional message",
-  "timestamp": "2024-01-01T12:00:00Z"
-}
+{"status": "running", "running": true, "enabled": true}
 ```
+`status` is exactly `running` or `stopped` (output of the configd action).
 
-## Error Codes
-
-| Code | Description |
-|------|-------------|
-| 200 | Success |
-| 400 | Bad Request |
-| 401 | Unauthorized |
-| 403 | Forbidden |
-| 404 | Not Found |
-| 500 | Internal Server Error |
-| 503 | Service Unavailable |
-
-## Endpoints
-
-### Service Management
-
-#### Get Service Status
-```http
-GET /api/hilink/service/status
-```
-
-**Response:**
+### `POST /api/hilink/service/start` · `/stop` · `/restart`
 ```json
-{
-  "status": "success",
-  "data": {
-    "running": true,
-    "pid": 12345,
-    "uptime": 3600,
-    "version": "1.0.0",
-    "modems_connected": 1
-  }
-}
+{"response": "...", "status": "ok"}
 ```
+Returns `{"response": "error", "status": "failed"}` for non-POST requests.
 
-#### Start Service
-```http
-POST /api/hilink/service/start
-```
-
-**Response:**
+### `POST /api/hilink/service/reconfigure`
+Restarts the service when enabled, stops it when disabled. Called by the UI
+after "Save & Apply".
 ```json
-{
-  "status": "success",
-  "message": "Service started successfully"
-}
+{"status": "ok"}
 ```
 
-#### Stop Service
-```http
-POST /api/hilink/service/stop
-```
-
-**Response:**
+### `POST /api/hilink/service/test`
+Validates configuration and probes each enabled modem (runs
+`hilink_control.py test`). May take several seconds per unreachable modem.
 ```json
-{
-  "status": "success",
-  "message": "Service stopped successfully"
-}
+{"status": "ok", "message": "{\"status\": \"success\", \"modems\": {\"HiLinkModem\": \"reachable\"}}"}
 ```
+`message` is the raw JSON document produced by the backend test command.
 
-#### Restart Service
-```http
-POST /api/hilink/service/restart
-```
-
-**Response:**
+### `POST /api/hilink/service/probe/<uuid>`
+Reads the modem's current settings without changing anything (used by the
+first-use wizard). `<uuid>` must be a valid modem UUID.
 ```json
-{
-  "status": "success",
-  "message": "Service restarted successfully"
-}
+{"status": "ok", "uuid": "…", "settings": {"network_mode": "auto", "roaming_enabled": false, "max_idle_time": 0, "auto_disconnect_min": 0, "auto_connect": true, "device_name": "E3372h-320"}}
 ```
 
-### Configuration
+## Settings — `/api/hilink/settings/`
 
-#### Get Configuration
-```http
-GET /api/hilink/settings/get
-```
-
-**Response:**
+### `GET /api/hilink/settings/get`
+Full model under the `hilink` key (standard OPNsense model shape):
 ```json
-{
-  "status": "success",
-  "data": {
-    "general": {
-      "enabled": true,
-      "update_interval": 30,
-      "data_retention": 30
-    },
-    "modems": [
-      {
-        "uuid": "550e8400-e29b-41d4-a716-446655440000",
-        "name": "Primary Modem",
-        "enabled": true,
-        "ip_address": "192.168.8.1",
-        "username": "admin",
-        "auto_connect": true,
-        "roaming_enabled": false,
-        "network_mode": "auto"
-      }
-    ],
-    "alerts": {
-      "low_signal_threshold": -90,
-      "data_limit_enabled": false,
-      "data_limit_mb": 10240
-    }
-  }
-}
+{"hilink": {"general": {"enabled": "1", "update_interval": "30", "data_retention": "30", "debug_logging": "0", "wizard_completed": "1"}, "modems": {"modem": {"<uuid>": {"enabled": "1", "name": "…", …}}}, "alerts": {…}}}
 ```
 
-#### Update Configuration
-```http
-POST /api/hilink/settings/set
-Content-Type: application/json
+### `POST /api/hilink/settings/set`
+Standard model save. Returns `{"result": "saved"}` or
+`{"result": "failed", "validations": {...}}`.
 
-{
-  "general": {
-    "update_interval": 60
-  },
-  "modems": [
-    {
-      "uuid": "550e8400-e29b-41d4-a716-446655440000",
-      "roaming_enabled": true
-    }
-  ]
-}
-```
+### Modem CRUD (bootgrid endpoints)
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `GET/POST /api/hilink/settings/searchModem` | search | Bootgrid rows (`enabled, name, ip_address, network_mode, auto_connect`) |
+| `GET /api/hilink/settings/getModem/<uuid>` | get | One modem (or empty template without uuid) |
+| `POST /api/hilink/settings/addModem/` | add | Returns `{"result":"saved","uuid":"…"}` |
+| `POST /api/hilink/settings/setModem/<uuid>` | set | Update one modem |
+| `POST /api/hilink/settings/delModem/<uuid>` | del | Delete one modem |
+| `POST /api/hilink/settings/toggleModem/<uuid>[/<enabled>]` | toggle | Enable/disable |
 
-**Response:**
+### `GET /api/hilink/settings/export`
+Configuration as a JSON payload (general, alerts, modems incl. uuids).
+### `POST /api/hilink/settings/import`
+Replace configuration from an export payload (new uuids are generated).
+Neither endpoint is currently wired into the UI.
+
+## Monitor — `/api/hilink/monitor/`
+
+Status endpoints fetch live data from the modem on every call
+(PHP → configd → `hilink_control.py` → modem HTTP), so each request costs
+roughly 1–3 s per modem.
+
+All take an optional `modem_uuid` parameter (query string or POST). When
+omitted, the first enabled modem is used. Unknown/invalid uuids are rejected
+before reaching configd.
+
+### `GET /api/hilink/monitor/status`
 ```json
-{
-  "status": "success",
-  "message": "Configuration updated successfully"
-}
+{"status": "ok", "data": {
+  "connected": true, "connection_status": "CONNECTED", "network_type": "LTE (4G)",
+  "network_operator": "…", "wan_ip": "10.x.x.x", "sim_status": "1",
+  "device_name": "E3372h-320", "imei": "…", "iccid": "…",
+  "connection_time": 3600, "roaming": false, "uuid": "…",
+  "signal":  {"rssi": -65, "rsrp": -95, "rsrq": -10, "sinr": 15, "signal_bars": 5, "signal_quality": "excellent", "cell_id": 12345, "band": "3", "frequency": 1800},
+  "usage":   {"session_upload": 0, "session_download": 0, "session_total": 0, "total_upload": 0, "total_download": 0, "total_total": 0, "monthly_upload": 0, "monthly_download": 0, "monthly_total": 0}
+}}
 ```
+Errors: `{"error": "No modem configured or enabled"}`, `{"error": "Unknown modem"}`,
+`{"error": "Failed to get modem status"}`.
 
-#### Validate Configuration
-```http
-POST /api/hilink/settings/validate
-Content-Type: application/json
-
-{
-  "modems": [
-    {
-      "ip_address": "192.168.8.1",
-      "username": "admin",
-      "password": "password123"
-    }
-  ]
-}
-```
-
-**Response:**
+### `GET /api/hilink/monitor/signal` · `/data`
+The `signal` / `usage` sub-objects of `/status` respectively:
 ```json
-{
-  "status": "success",
-  "data": {
-    "valid": true,
-    "errors": []
-  }
-}
+{"status": "ok", "data": {"rssi": -65, …}}
 ```
 
-### Monitoring
-
-#### Get Modem Status
-```http
-GET /api/hilink/monitor/status
-```
-
-**Query Parameters:**
-- `modem_uuid` (optional): Specific modem UUID
-
-**Response:**
+### `GET /api/hilink/monitor/metrics`
+Historical RRD metrics for one modem (fixed window: last hour, 30 s
+resolution). Query parameters other than `modem_uuid` are not supported.
 ```json
-{
-  "status": "success",
-  "data": {
-    "connection_status": "connected",
-    "network_type": "4G",
-    "network_operator": "Carrier Name",
-    "wan_ip": "10.0.0.1",
-    "connection_time": 3600,
-    "sim_status": "ready",
-    "device_name": "E3372h-320",
-    "imei": "123456789012345",
-    "iccid": "89000000000000000000"
-  }
-}
+{"status": "ok", "data": {"start": 1754900000, "end": 1754903600, "step": 30,
+  "timestamps": [1754900000, …],
+  "metrics": {"signal_strength": [-65, …], "signal_quality": [80, …], "data_rx": […], "data_tx": […], "connection_state": [1, …], "network_type": [3, …]}}}
 ```
+`{"error": "No metrics available"}` when no RRD exists yet.
 
-#### Get Signal Information
-```http
-GET /api/hilink/monitor/signal
-```
-
-**Response:**
+### `GET /api/hilink/monitor/overview`
+Enabled modems for the dashboard cards.
 ```json
-{
-  "status": "success",
-  "data": {
-    "rssi": -65,
-    "rsrp": -95,
-    "rsrq": -10,
-    "sinr": 15,
-    "signal_bars": 4,
-    "signal_quality": "good",
-    "cell_id": 12345,
-    "band": "B3",
-    "frequency": 1800
-  }
-}
+{"status": "ok", "modems": [{"uuid": "…", "name": "…", "ip_address": "192.168.8.1", "data_limit_enabled": false, "data_limit_mb": 10240, "enabled": true}], "total": 1}
 ```
 
-#### Get Data Usage
-```http
-GET /api/hilink/monitor/data
-```
-
-**Query Parameters:**
-- `period` (optional): `session`, `day`, `month`, `total`
-
-**Response:**
+### `GET /api/hilink/monitor/profiles`
+APN profiles on the modem and the active one.
 ```json
-{
-  "status": "success",
-  "data": {
-    "session": {
-      "upload": 1048576,
-      "download": 10485760,
-      "total": 11534336,
-      "duration": 3600
-    },
-    "today": {
-      "upload": 5242880,
-      "download": 52428800,
-      "total": 57671680
-    },
-    "month": {
-      "upload": 1073741824,
-      "download": 10737418240,
-      "total": 11811160064
-    }
-  }
-}
+{"status": "ok", "uuid": "…", "active": "1", "profiles": [{"Index": "1", "Name": "…", "Apn": "…", "Username": "…", "AuthName": "…", "DialNumber": "*99#", "IpType": "…"}]}
 ```
 
-#### Get Historical Metrics
-```http
-GET /api/hilink/monitor/metrics
-```
-
-**Query Parameters:**
-- `start` (optional): Start timestamp (ISO 8601)
-- `end` (optional): End timestamp (ISO 8601)
-- `resolution` (optional): `5min`, `hour`, `day`
-- `metrics` (optional): Comma-separated list of metrics
-
-**Response:**
+### `POST /api/hilink/monitor/connect` · `/disconnect` · `/reboot`
+`modem_uuid` is required (query string or POST body).
 ```json
-{
-  "status": "success",
-  "data": {
-    "timestamps": [
-      "2024-01-01T12:00:00Z",
-      "2024-01-01T12:05:00Z"
-    ],
-    "metrics": {
-      "signal_strength": [-65, -67],
-      "data_rx": [1048576, 2097152],
-      "data_tx": [524288, 1048576],
-      "connection_state": [1, 1]
-    }
-  }
-}
+{"status": "ok", "message": "Connect command sent", "response": "{\"status\": \"ok\", \"command\": \"connect\"}"}
 ```
+`status` reflects the backend result (`error` when the modem command failed).
 
-### Modem Control
-
-#### Connect Modem
-```http
-POST /api/hilink/modem/connect
-```
-
-**Request Body (optional):**
+### `GET /api/hilink/monitor/alerts`
+Reserved for future alert delivery. Currently always:
 ```json
-{
-  "modem_uuid": "550e8400-e29b-41d4-a716-446655440000"
-}
+{"status": "ok", "alerts": [], "count": 0}
 ```
+Alert conditions (low signal, data limit) are evaluated by the backend
+service and written to `/var/log/hilink/service.log`; the data-limit
+condition additionally disconnects the modem.
 
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Modem connected successfully",
-  "data": {
-    "wan_ip": "10.0.0.1",
-    "connection_time": "2024-01-01T12:00:00Z"
-  }
-}
-```
+## Notes
 
-#### Disconnect Modem
-```http
-POST /api/hilink/modem/disconnect
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Modem disconnected successfully"
-}
-```
-
-#### Reboot Modem
-```http
-POST /api/hilink/modem/reboot
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Modem reboot initiated"
-}
-```
-
-#### Switch Network Mode
-```http
-POST /api/hilink/modem/network_mode
-Content-Type: application/json
-
-{
-  "mode": "4g_preferred"
-}
-```
-
-**Valid Modes:**
-- `auto`: Automatic selection
-- `4g_preferred`: 4G preferred, fallback to 3G/2G
-- `3g_preferred`: 3G preferred, fallback to 2G
-- `4g_only`: 4G only
-- `3g_only`: 3G only
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Network mode changed successfully"
-}
-```
-
-#### Enable/Disable Roaming
-```http
-POST /api/hilink/modem/roaming
-Content-Type: application/json
-
-{
-  "enabled": true
-}
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Roaming setting updated"
-}
-```
-
-### Alerts
-
-#### Get Active Alerts
-```http
-GET /api/hilink/alerts/active
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "data": [
-    {
-      "id": "alert_001",
-      "type": "low_signal",
-      "severity": "warning",
-      "message": "Signal strength below threshold: -95 dBm",
-      "timestamp": "2024-01-01T12:00:00Z",
-      "modem_uuid": "550e8400-e29b-41d4-a716-446655440000"
-    }
-  ]
-}
-```
-
-#### Acknowledge Alert
-```http
-POST /api/hilink/alerts/acknowledge
-Content-Type: application/json
-
-{
-  "alert_id": "alert_001"
-}
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Alert acknowledged"
-}
-```
-
-#### Get Alert History
-```http
-GET /api/hilink/alerts/history
-```
-
-**Query Parameters:**
-- `start` (optional): Start timestamp
-- `end` (optional): End timestamp
-- `type` (optional): Alert type filter
-- `limit` (optional): Maximum results (default: 100)
-
-**Response:**
-```json
-{
-  "status": "success",
-  "data": [
-    {
-      "id": "alert_001",
-      "type": "connection_lost",
-      "severity": "error",
-      "message": "Connection lost",
-      "timestamp": "2024-01-01T11:00:00Z",
-      "resolved_at": "2024-01-01T11:05:00Z",
-      "duration": 300
-    }
-  ]
-}
-```
-
-## WebSocket API
-
-### Real-time Updates
-
-Connect to WebSocket endpoint for real-time updates:
-
-```javascript
-const ws = new WebSocket('wss://your-opnsense/api/hilink/ws');
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log('Update:', data);
-};
-
-// Subscribe to specific events
-ws.send(JSON.stringify({
-  action: 'subscribe',
-  events: ['status', 'signal', 'data']
-}));
-```
-
-### Event Types
-
-| Event | Description | Data |
-|-------|-------------|------|
-| `status` | Connection status change | `{connected: boolean, wan_ip: string}` |
-| `signal` | Signal strength update | `{rssi: number, quality: string}` |
-| `data` | Data usage update | `{upload: number, download: number}` |
-| `alert` | New alert | `{type: string, message: string}` |
-
-## Rate Limiting
-
-API requests are rate-limited:
-- **Default**: 60 requests per minute
-- **Monitoring endpoints**: 120 requests per minute
-- **Control endpoints**: 10 requests per minute
-
-Rate limit headers:
-```
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1704110400
-```
-
-## Examples
-
-### Python Example
-
-```python
-import requests
-import json
-
-class HiLinkAPI:
-    def __init__(self, host, api_key):
-        self.host = host
-        self.headers = {
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
-        }
-    
-    def get_status(self):
-        response = requests.get(
-            f'{self.host}/api/hilink/monitor/status',
-            headers=self.headers
-        )
-        return response.json()
-    
-    def connect_modem(self):
-        response = requests.post(
-            f'{self.host}/api/hilink/modem/connect',
-            headers=self.headers
-        )
-        return response.json()
-
-# Usage
-api = HiLinkAPI('https://192.168.1.1', 'your-api-key')
-status = api.get_status()
-print(f"Connection: {status['data']['connection_status']}")
-```
-
-### JavaScript Example
-
-```javascript
-class HiLinkAPI {
-  constructor(host, apiKey) {
-    this.host = host;
-    this.headers = {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    };
-  }
-  
-  async getStatus() {
-    const response = await fetch(`${this.host}/api/hilink/monitor/status`, {
-      headers: this.headers
-    });
-    return response.json();
-  }
-  
-  async connectModem() {
-    const response = await fetch(`${this.host}/api/hilink/modem/connect`, {
-      method: 'POST',
-      headers: this.headers
-    });
-    return response.json();
-  }
-}
-
-// Usage
-const api = new HiLinkAPI('https://192.168.1.1', 'your-api-key');
-api.getStatus().then(status => {
-  console.log(`Connection: ${status.data.connection_status}`);
-});
-```
-
-### cURL Examples
-
-```bash
-# Get modem status
-curl -X GET https://192.168.1.1/api/hilink/monitor/status \
-  -H "Authorization: Bearer YOUR_API_KEY"
-
-# Connect modem
-curl -X POST https://192.168.1.1/api/hilink/modem/connect \
-  -H "Authorization: Bearer YOUR_API_KEY"
-
-# Update configuration
-curl -X POST https://192.168.1.1/api/hilink/settings/set \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"general":{"update_interval":60}}'
-
-# Get data usage for current month
-curl -X GET "https://192.168.1.1/api/hilink/monitor/data?period=month" \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-## Troubleshooting
-
-### Common Error Responses
-
-#### Authentication Failed
-```json
-{
-  "status": "error",
-  "message": "Invalid API key",
-  "code": 401
-}
-```
-
-#### Modem Not Found
-```json
-{
-  "status": "error",
-  "message": "Modem with UUID not found",
-  "code": 404
-}
-```
-
-#### Service Unavailable
-```json
-{
-  "status": "error",
-  "message": "HiLink service is not running",
-  "code": 503
-}
-```
-
-#### Invalid Configuration
-```json
-{
-  "status": "error",
-  "message": "Invalid configuration",
-  "errors": [
-    "IP address format invalid",
-    "Update interval must be between 10 and 300"
-  ],
-  "code": 400
-}
-```
-
-## API Versioning
-
-The API uses URL versioning. Current version: v1
-
-Future versions will be available at:
-- `/api/hilink/v2/...`
-- `/api/hilink/v3/...`
-
-The unversioned endpoints (`/api/hilink/...`) will always point to v1 for backward compatibility.
-
-## Support
-
-For API support and questions:
-- GitHub Issues: [https://github.com/yourusername/opnsense-hilink/issues](https://github.com/yourusername/opnsense-hilink/issues)
-- API Documentation: [https://docs.example.com/api](https://docs.example.com/api)
-- Email: api-support@example.com
+- There is **no WebSocket API** and **no rate limiting**; earlier revisions
+  of this document described both aspirationally.
+- `network_type` numeric codes from the modem are translated to readable
+  names (`LTE (4G)`, `HSPA+ (3G)`, …).
+- All byte counters are integers (bytes) as reported by the modem; monthly
+  figures come from the modem's own month statistics.

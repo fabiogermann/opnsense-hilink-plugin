@@ -1,417 +1,195 @@
 # OPNsense HiLink Modem Plugin Architecture
 
+Current as of the 2026-07 overhaul. `TODO.md` tracks remaining work and known
+limitations; this document describes what exists, not what was once planned.
+
 ## Overview
-This plugin provides monitoring and configuration capabilities for HiLink-based Huawei 4G USB modems in OPNsense firewalls. The architecture is designed to support multiple modems while initially implementing single modem functionality.
 
-## Supported Devices
-- Huawei E3372s series (including E3372s-153)
-- Huawei E3372h series (E3372h-320, E3372h-153)
-- Huawei E8372h series (future support)
+The plugin monitors and manages Huawei HiLink-based 4G/LTE USB modems. It
+consists of a PHP MVC front end (OPNsense framework), a configd action set,
+and two Python entry points: a long-running monitoring daemon and a one-shot
+control CLI used by configd.
 
-## Architecture Components
-
-### 1. Core Components
+## Component diagram
 
 ```mermaid
 graph TB
-    subgraph "OPNsense System"
-        UI[Web UI - PHP/Phalcon]
-        API[REST API - PHP]
-        CONF[Configd - Python]
-        DB[RRD Database]
-        SYSLOG[System Logging]
+    subgraph "OPNsense"
+        UI[Volt views<br/>index / settings]
+        API[PHP API controllers<br/>Service / Settings / Monitor]
+        MODEL[HiLink model<br/>mount: //OPNsense/hilink]
+        CONF[configd<br/>actions_hilink.conf]
+        CF[/conf/config.xml/]
     end
-    
-    subgraph "HiLink Plugin"
-        SVC[HiLink Service Daemon]
-        COLLECTOR[Data Collector]
-        CONFIG[Configuration Manager]
-        MONITOR[Monitor Service]
+
+    subgraph "Python backend"
+        SVC[hilink_service.py<br/>monitoring daemon]
+        CTL[hilink_control.py<br/>one-shot CLI]
+        LIB[lib: hilink_api /<br/>config_manager / data_store]
+        RRD[(rrdtool CLI<br/>/var/db/hilink/rrd)]
     end
-    
-    subgraph "Modem Layer"
-        HIAPI[HiLink API Wrapper]
-        MODEM1[Modem 1]
-        MODEM2[Modem N - Future]
-    end
-    
+
+    MODEM[Huawei HiLink modem<br/>HTTP API @ 192.168.8.1]
+
     UI --> API
+    API --> MODEL
+    MODEL --> CF
     API --> CONF
-    CONF --> SVC
-    SVC --> CONFIG
-    SVC --> MONITOR
-    MONITOR --> COLLECTOR
-    COLLECTOR --> DB
-    COLLECTOR --> HIAPI
-    CONFIG --> HIAPI
-    HIAPI --> MODEM1
-    HIAPI -.-> MODEM2
-    SVC --> SYSLOG
+    CONF -->|start/stop/restart/status<br/>via daemon(8)| SVC
+    CONF -->|connect/disconnect/reboot/<br/>getstatus/getmetrics/probe/getprofiles/test| CTL
+    SVC -->|reads| CF
+    CTL -->|reads| CF
+    SVC --> LIB
+    CTL --> LIB
+    LIB --> MODEM
+    SVC -->|create/update/fetch| RRD
+    CTL -->|fetch| RRD
 ```
 
-### 2. Directory Structure
+Two data paths, deliberately separate:
+
+- **Live path (control/status)**: every dashboard/status request goes
+  PHP → configd → `hilink_control.py` → modem HTTP. It always reflects the
+  modem's current state and costs ~1–3 s per call.
+- **Historical path (metrics)**: the daemon polls each enabled modem every
+  `collect_interval` seconds and writes to per-modem RRD files
+  (`/var/db/hilink/rrd/<uuid>.rrd`) via the `rrdtool` CLI. `getmetrics`
+  reads those files; it never touches the modem.
+
+## Directory structure
 
 ```
-opn/
+opnsense-hilink-plugin/
 ├── src/
-│   ├── opnsense/
-│   │   ├── mvc/
-│   │   │   ├── app/
-│   │   │   │   ├── controllers/
-│   │   │   │   │   └── OPNsense/HiLink/
-│   │   │   │   │       ├── Api/
-│   │   │   │   │       │   ├── ServiceController.php
-│   │   │   │   │       │   ├── SettingsController.php
-│   │   │   │   │       │   └── MonitorController.php
-│   │   │   │   │       └── IndexController.php
-│   │   │   │   ├── models/
-│   │   │   │   │   └── OPNsense/HiLink/
-│   │   │   │   │       ├── HiLink.xml
-│   │   │   │   │       ├── HiLink.php
-│   │   │   │   │       └── ACL.xml
-│   │   │   │   └── views/
-│   │   │   │       └── OPNsense/HiLink/
-│   │   │   │           └── index.volt
-│   │   │   └── www/
-│   │   │       └── js/
-│   │   │           └── hilink/
-│   │   │               └── hilink.js
-│   │   ├── scripts/
-│   │   │   ├── hilink/
-│   │   │   │   ├── hilink_service.py
-│   │   │   │   ├── hilink_monitor.py
-│   │   │   │   ├── hilink_collector.py
-│   │   │   │   └── lib/
-│   │   │   │       ├── __init__.py
-│   │   │   │       ├── hilink_api.py
-│   │   │   │       ├── config_manager.py
-│   │   │   │       └── data_store.py
-│   │   │   └── OPNsense/
-│   │   │       └── HiLink/
-│   │   │           └── setup.sh
-│   │   ├── service/
-│   │   │   ├── conf/
-│   │   │   │   └── actions.d/
-│   │   │   │       └── actions_hilink.conf
-│   │   │   └── templates/
-│   │   │       └── OPNsense/
-│   │   │           └── HiLink/
-│   │   │               └── +TARGETS
-│   │   └── www/
-│   │       └── widgets/
-│   │           └── hilink.widget.php
-├── tests/
-│   ├── unit/
-│   │   ├── test_hilink_api.py
-│   │   ├── test_config_manager.py
-│   │   └── test_data_store.py
-│   └── integration/
-│       ├── test_service.py
-│       └── test_monitoring.py
+│   └── opnsense/
+│       ├── mvc/
+│       │   └── app/
+│       │       ├── controllers/
+│       │       │   └── OPNsense/HiLink/
+│       │       │       ├── IndexController.php
+│       │       │       ├── Api/
+│       │       │       │   ├── ServiceController.php
+│       │       │       │   ├── SettingsController.php
+│       │       │       │   └── MonitorController.php
+│       │       │       └── forms/
+│       │       │           ├── generalSettings.xml
+│       │       │           ├── alertSettings.xml
+│       │       │           └── dialogModem.xml
+│       │       ├── models/
+│       │       │   └── OPNsense/HiLink/
+│       │       │       ├── HiLink.php
+│       │       │       ├── HiLink.xml
+│       │       │       ├── Menu/Menu.xml
+│       │       │       └── ACL/ACL.xml
+│       │       └── views/
+│       │           └── OPNsense/HiLink/
+│       │               ├── index.volt
+│       │               └── settings.volt
+│       ├── scripts/
+│       │   └── hilink/
+│       │       ├── hilink_service.py      # async daemon (monitoring/RRD)
+│       │       ├── hilink_control.py      # one-shot CLI used by configd
+│       │       └── lib/
+│       │           ├── __init__.py
+│       │           ├── hilink_api.py      # async HiLink modem API wrapper
+│       │           ├── config_manager.py  # XML/JSON config load/save/validate
+│       │           └── data_store.py      # RRD storage via the rrdtool CLI
+│       └── service/
+│           └── conf/
+│               └── actions.d/
+│                   └── actions_hilink.conf
+├── pkg/+MANIFEST
+├── tools/build_pkg.sh
+├── tests/unit/
 ├── docs/
-│   ├── USER_GUIDE.md
-│   ├── DEVELOPER.md
-│   └── API.md
-├── pkg/
-│   ├── +MANIFEST
-│   ├── +PRE_INSTALL
-│   ├── +POST_INSTALL
-│   └── +DESCR
-├── .github/
-│   └── workflows/
-│       ├── test.yml
-│       └── build.yml
-├── Makefile
-├── requirements.txt
-└── README.md
+└── .github/workflows/
 ```
 
-## Component Details
+There is deliberately **no** configd template and **no** www/ JS tree — the
+Python service reads `/conf/config.xml` directly and the views use inline
+JavaScript.
 
-### 1. Backend Service (Python)
+## Components
 
-#### hilink_service.py
-Main daemon that manages:
-- Service lifecycle
-- Configuration updates
-- Modem connection management
-- Event handling
+### PHP front end
 
-#### hilink_monitor.py
-Monitoring component:
-- Signal strength (RSSI, RSRP, RSRQ, SINR)
-- Connection status
-- Network type (2G/3G/4G/5G)
-- Data usage statistics
-- Connection uptime
+- **IndexController** — serves the Dashboard (`index`) and Settings
+  (`settings`) pages.
+- **ServiceController** (`ApiMutableServiceControllerBase`) — start/stop/
+  restart/status/test/reconfigure, plus `probe/<uuid>` (read-only settings
+  import for the first-use wizard). `reconfigure` restarts the service when
+  enabled, stops it when disabled — that is the whole "apply" story.
+- **SettingsController** (`ApiMutableModelControllerBase`) — model get/set,
+  bootgrid CRUD for modems, config export/import (API only, no UI).
+- **MonitorController** — live status/signal/data, RRD metrics, overview,
+  profiles, connect/disconnect/reboot. Validates every `modem_uuid`
+  (format + existence in the model) before calling configd.
 
-#### hilink_collector.py
-Data collection service:
-- Periodic data collection (configurable interval)
-- RRD database updates
-- Historical data management (30 days default, configurable)
-- Data aggregation for multiple modems (future)
+### configd actions (`actions_hilink.conf`)
 
-#### lib/hilink_api.py
-Python wrapper for HiLink API:
-- Based on existing hilinkapi implementation
-- Connection pooling for multiple modems
-- Error handling and retry logic
-- Authentication management
+- Lifecycle: `start`, `stop`, `restart`, `status` — `daemon(8)` owns
+  daemonization and the pidfile (`/var/run/hilink.pid`); the Python daemon
+  always runs in the foreground. `status` prints exactly `running`/`stopped`.
+- Control: `connect`, `disconnect`, `reboot` (parameterized: modem uuid).
+- Read: `getstatus`, `getmetrics`, `probe`, `getprofiles`, `test`.
 
-### 2. Web Interface (PHP/Phalcon)
+### Python backend
 
-#### Controllers
-- **ServiceController**: Start/stop/restart service
-- **SettingsController**: Configuration management
-- **MonitorController**: Real-time monitoring data
+- **hilink_service.py** — async daemon. Tasks: `monitor_loop` (collect
+  metrics, connection supervision: reconnect with back-off, auto-connect,
+  low-signal warning, data-limit disconnect), `config_reload_loop` (re-reads
+  config.xml every 60 s, adds/removes/updates modem managers, applies
+  `debug_logging`), `cleanup_loop` (daily RRD retention). Applies managed
+  settings (roaming, network mode, band lock, auto-disconnect, PLMN search,
+  active profile) on startup and reload.
+- **hilink_control.py** — one-shot commands for configd; prints a single
+  JSON document per invocation and exits non-zero on failure.
+- **lib/hilink_api.py** — async HiLink API wrapper (httpx). WebUI 10/17/21
+  session+login flows, token handling, status/signal/usage reads, dataswitch,
+  reboot, network mode, roaming, auto-disconnect, band lock, PLMN search,
+  APN profile list/select, settings probe. Modem numeric fields are parsed
+  tolerantly (unit suffixes like `dBm`/`dB` are stripped).
+- **lib/config_manager.py** — reads `/conf/config.xml` (preferred),
+  plugin XML export, or JSON; validates; modem/alerts/general dataclasses.
+  Passwords are base64-obfuscated with a `b64:` prefix only in
+  plugin-managed files — never in config.xml.
+- **lib/data_store.py** — RRD create/update/fetch/info/graph via the
+  `rrdtool` **CLI** (the Python binding is not in the OPNsense package set),
+  statistics, CSV export, retention cleanup.
 
-#### Models
-- Configuration model (XML-based)
-- Validation rules
-- Default values
+## Configuration model
 
-#### Views
-- Dashboard with real-time stats
-- Configuration forms
-- Historical graphs
-- Alert management
+Mounted at `//OPNsense/hilink` in `/conf/config.xml`; modem uuids are XML
+attributes (standard `ArrayField` behaviour). Sections:
 
-### 3. Configuration Schema
+- `general`: `enabled`, `update_interval` (dashboard refresh),
+  `data_retention`, `debug_logging`, `wizard_completed`.
+- `modems/modem`: connection (name/ip/credentials), behaviour
+  (`auto_connect`, `roaming_enabled`, `network_mode`, reconnect policy,
+  `auto_disconnect_min`, band bitmasks, PLMN search, `active_profile`),
+  monitoring (`collect_interval`, `signal_threshold`, `data_limit_*`,
+  `alert_email`). `max_idle_time` is a deprecated legacy field — honoured as
+  a fallback by the service but not shown in the UI.
+- `alerts`: thresholds + SMTP/email fields (delivery not yet implemented).
 
-```xml
-<model>
-    <mount>//OPNsense/hilink</mount>
-    <description>HiLink modem configuration</description>
-    <items>
-        <general>
-            <enabled type="BooleanField">
-                <default>1</default>
-                <Required>Y</Required>
-            </enabled>
-            <update_interval type="IntegerField">
-                <default>30</default>
-                <MinimumValue>10</MinimumValue>
-                <MaximumValue>300</MaximumValue>
-                <ValidationMessage>Update interval must be between 10 and 300 seconds</ValidationMessage>
-            </update_interval>
-            <data_retention type="IntegerField">
-                <default>30</default>
-                <MinimumValue>1</MinimumValue>
-                <MaximumValue>365</MaximumValue>
-                <ValidationMessage>Data retention must be between 1 and 365 days</ValidationMessage>
-            </data_retention>
-        </general>
-        <modems>
-            <modem type="ArrayField">
-                <name type="TextField">
-                    <Required>Y</Required>
-                    <mask>/^[a-zA-Z0-9_-]+$/</mask>
-                </name>
-                <enabled type="BooleanField">
-                    <default>1</default>
-                </enabled>
-                <ip_address type="NetworkField">
-                    <Required>Y</Required>
-                    <default>192.168.8.1</default>
-                </ip_address>
-                <username type="TextField">
-                    <default>admin</default>
-                </username>
-                <password type="PasswordField">
-                    <Required>N</Required>
-                </password>
-                <auto_connect type="BooleanField">
-                    <default>1</default>
-                </auto_connect>
-                <roaming_enabled type="BooleanField">
-                    <default>0</default>
-                </roaming_enabled>
-                <max_idle_time type="IntegerField">
-                    <default>0</default>
-                    <MinimumValue>0</MinimumValue>
-                    <MaximumValue>86400</MaximumValue>
-                </max_idle_time>
-                <network_mode type="OptionField">
-                    <default>auto</default>
-                    <OptionValues>
-                        <auto>Automatic</auto>
-                        <4g_preferred>4G Preferred</4g_preferred>
-                        <3g_preferred>3G Preferred</3g_preferred>
-                        <4g_only>4G Only</4g_only>
-                        <3g_only>3G Only</3g_only>
-                    </OptionValues>
-                </network_mode>
-                <failover>
-                    <enabled type="BooleanField">
-                        <default>0</default>
-                    </enabled>
-                    <check_interval type="IntegerField">
-                        <default>60</default>
-                    </check_interval>
-                    <max_failures type="IntegerField">
-                        <default>3</default>
-                    </max_failures>
-                </failover>
-            </modem>
-        </modems>
-        <alerts>
-            <low_signal_threshold type="IntegerField">
-                <default>-90</default>
-                <MinimumValue>-120</MinimumValue>
-                <MaximumValue>-50</MaximumValue>
-            </low_signal_threshold>
-            <data_limit_enabled type="BooleanField">
-                <default>0</default>
-            </data_limit_enabled>
-            <data_limit_mb type="IntegerField">
-                <default>10240</default>
-            </data_limit_mb>
-            <email_alerts type="BooleanField">
-                <default>0</default>
-            </email_alerts>
-        </alerts>
-    </items>
-</model>
-```
+## Security boundaries
 
-## Monitoring Metrics
+- `modem_uuid` is regex-validated **and** resolved against the model before
+  any configd call; configd parameters go through `configdpRun`
+  (parameterized, not string-interpolated).
+- ACL `page-services-hilink` covers `ui/hilink/*` and `api/hilink/*`.
+- Modem/SMTP passwords are plaintext in `config.xml` (OPNsense-standard);
+  the `b64:` scheme is obfuscation for plugin-managed exports only.
+- Values interpolated into modem-bound XML and into dashboard HTML are
+  escaped.
 
-### Real-time Metrics
-- **Connection Status**: Connected/Disconnected
-- **Network Type**: 2G/3G/4G/5G
-- **Signal Strength**: RSSI (dBm)
-- **Signal Quality**: RSRP, RSRQ, SINR
-- **Data Usage**: Upload/Download (bytes)
-- **Connection Uptime**: Duration since last connect
-- **IP Address**: Current WAN IP
-- **Network Operator**: Carrier name
+## Packaging and CI
 
-### Historical Metrics (RRD)
-- Signal strength over time
-- Data usage trends
-- Connection stability
-- Network type changes
-- Roaming events
-
-## Features Implementation
-
-### Phase 1: Core Functionality
-1. Single modem support
-2. Basic monitoring (signal, status, data)
-3. Manual connect/disconnect
-4. Web UI dashboard
-5. Configuration interface
-
-### Phase 2: Advanced Features
-1. Auto-connect/disconnect based on schedule
-2. Roaming configuration
-3. Network mode selection
-4. Data usage alerts
-5. Email notifications
-
-### Phase 3: Multi-modem Support
-1. Multiple modem management
-2. Load balancing
-3. Failover support
-4. Aggregated statistics
-5. Per-modem policies
-
-## Build System
-
-### Makefile Targets
-```makefile
-all: build test package
-
-build:
-    - Compile Python modules
-    - Minify JavaScript
-    - Generate documentation
-
-test:
-    - Run unit tests
-    - Run integration tests
-    - Code coverage report
-
-package:
-    - Create OPNsense package
-    - Generate checksums
-    - Create release artifacts
-
-install:
-    - Install to local OPNsense
-
-clean:
-    - Remove build artifacts
-    - Clean test results
-```
-
-## Testing Strategy
-
-### Unit Tests
-- API wrapper functions
-- Configuration validation
-- Data collection logic
-- Service management
-
-### Integration Tests
-- End-to-end modem communication
-- Web UI functionality
-- Service lifecycle
-- Data persistence
-
-### Manual Testing
-- Multiple modem models
-- Various network conditions
-- Failover scenarios
-- Performance testing
-
-## Security Considerations
-
-1. **Credentials Storage**: Encrypted storage of modem passwords
-2. **API Authentication**: Secure token management
-3. **Input Validation**: Strict validation of all user inputs
-4. **Network Isolation**: Modem network segregation
-5. **Logging**: Audit trail for all operations
-
-## Performance Optimization
-
-1. **Connection Pooling**: Reuse HTTP connections
-2. **Caching**: Cache static modem information
-3. **Batch Operations**: Group API calls when possible
-4. **Async Processing**: Non-blocking operations
-5. **Resource Limits**: CPU and memory constraints
-
-## Error Handling
-
-1. **Graceful Degradation**: Continue operation if modem unavailable
-2. **Retry Logic**: Exponential backoff for failed operations
-3. **Error Logging**: Detailed error messages for debugging
-4. **User Notifications**: Clear error messages in UI
-5. **Recovery Actions**: Automatic recovery attempts
-
-## Deployment
-
-### GitHub Actions CI/CD
-1. **Test Pipeline**: Run on every push
-2. **Build Pipeline**: Create packages on tags
-3. **Release Pipeline**: Publish to GitHub releases
-4. **Documentation**: Auto-generate API docs
-
-### Installation Process
-1. Upload package to OPNsense
-2. Install via package manager
-3. Configure through web UI
-4. Start service
-5. Verify operation
-
-## Future Enhancements
-
-1. **5G Support**: Add support for 5G modems
-2. **SMS Management**: Send/receive SMS
-3. **Band Locking**: Force specific frequency bands
-4. **VPN Integration**: Auto-connect VPN on modem connection
-5. **REST API**: External monitoring integration
-6. **Grafana Dashboard**: Advanced visualization
-7. **Multi-WAN**: Integration with OPNsense multi-WAN
-8. **QoS Integration**: Traffic shaping based on signal quality
+- `tools/build_pkg.sh` stages `src/opnsense` under `/usr/local/opnsense`,
+  builds a real `.pkg` with `pkg create`, and rewrites the stamped host ABI
+  to `freebsd:*:*` (via Python + zstandard) so Linux CI can produce packages.
+- Workflows: `test.yml` (pytest matrix, black, pylint/mypy advisory, bandit,
+  safety, PHP lint, service smoke test), `build.yml` (tag-driven package +
+  GitHub release), `deploy-repo.yml` (GitHub Pages pkg repo).
+- Runtime deps (stock OPNsense packages only): `python313`, `py313-httpx`,
+  `rrdtool`.

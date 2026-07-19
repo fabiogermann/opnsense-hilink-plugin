@@ -7,7 +7,7 @@ A plugin for monitoring and managing Huawei HiLink-based 4G/LTE USB modems in OP
 - Real-time modem monitoring (signal strength, connection status, data usage)
 - Auto-connect/disconnect with configurable retry
 - Roaming and network mode selection (4G/3G/2G)
-- Data usage tracking with limits and email alerts
+- Data usage tracking with monthly limits (enforced by disconnect; alerts are logged — email delivery is not yet implemented)
 - Historical metrics with configurable retention (RRD)
 - Web dashboard with live updates and REST API
 
@@ -24,8 +24,8 @@ See [docs/SETUP.md](docs/SETUP.md) for the OPNsense setup guide, including NAT-m
 
 ## Requirements
 
-- OPNsense 24.7+ (25.1+ recommended)
-- Python 3.11+
+- OPNsense 24.7+ (25.1+ recommended; verified on 26.7)
+- Python 3.13 (installed automatically via the `python313` package dependency)
 - A HiLink-compatible Huawei USB modem
 
 ## Installation
@@ -40,8 +40,12 @@ pkg update && pkg install os-hilink
 
 ### Direct from a release
 
+Download the current `os-hilink-*.pkg` asset from the
+[releases page](https://github.com/fabiogermann/opnsense-hilink-plugin/releases/latest),
+copy it to the firewall, then:
+
 ```bash
-pkg add https://github.com/fabiogermann/opnsense-hilink-plugin/releases/latest/download/os-hilink-0.1.2.pkg
+pkg add os-hilink-<version>.pkg
 ```
 
 Then navigate to **Services → HiLink** to configure.
@@ -65,8 +69,8 @@ sudo make install        # requires root; restarts configd
 ## Development
 
 ```bash
-pip install -r requirements.txt
-make test       # unit + integration tests
+pip install -r requirements-dev.txt
+make test       # unit tests with coverage
 make package    # build the FreeBSD .pkg
 ```
 
@@ -75,8 +79,8 @@ Project layout: `src/opnsense/{mvc,scripts,service}/` (web UI, backend services,
 ## Troubleshooting
 
 - **Modem not detected**: verify IP `192.168.8.1`, USB connection, and that the modem is in HiLink mode (not serial).
-- **No data collection**: check `service hilink status`, logs in `/var/log/hilink/`, and RRD permissions.
-- **Debug mode**: Services → HiLink → Advanced → Debug Logging; logs at `/var/log/hilink/debug.log`.
+- **No data collection**: check `configctl hilink status`, logs in `/var/log/hilink/service.log`, and RRD permissions under `/var/db/hilink/rrd`.
+- **Debug mode**: Services → HiLink → Settings → General → enable *Debug logging* (advanced), then Save & Apply. Verbose output goes to `/var/log/hilink/service.log`.
 
 ## License
 
