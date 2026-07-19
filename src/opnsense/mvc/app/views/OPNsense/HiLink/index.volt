@@ -7,6 +7,13 @@
     $( document ).ready(function() {
         var refreshTimer = null;
 
+        function esc(value) {
+            // Escape modem/network-sourced strings before HTML substitution
+            return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+                return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+            });
+        }
+
         function formatBytes(bytes) {
             bytes = parseInt(bytes, 10);
             if (isNaN(bytes) || bytes < 0) {
@@ -52,16 +59,16 @@
 
             var tokens = {
                 'UUID': modem.uuid,
-                'NAME': modem.name,
+                'NAME': esc(modem.name),
                 'STATUS': data === null ? '{{ lang._('Unreachable') }}'
                         : (connected ? '{{ lang._('Connected') }}' : '{{ lang._('Disconnected') }}'),
                 'STATUS_CLASS': data === null ? 'default' : (connected ? 'success' : 'danger'),
-                'IP_ADDRESS': modem.ip_address,
-                'NETWORK_TYPE': (data && data.network_type) || '-',
-                'OPERATOR': (data && data.network_operator) || '-',
-                'WAN_IP': (data && data.wan_ip) || '-',
-                'SIGNAL_DBM': signal.rssi !== undefined ? signal.rssi : '-',
-                'SIGNAL_QUALITY': signal.signal_quality || '-',
+                'IP_ADDRESS': esc(modem.ip_address),
+                'NETWORK_TYPE': esc((data && data.network_type) || '-'),
+                'OPERATOR': esc((data && data.network_operator) || '-'),
+                'WAN_IP': esc((data && data.wan_ip) || '-'),
+                'SIGNAL_DBM': signal.rssi !== undefined ? esc(signal.rssi) : '-',
+                'SIGNAL_QUALITY': esc(signal.signal_quality || '-'),
                 'DATA_PERCENT': percent,
                 'DATA_USED': formatBytes(usedBytes),
                 'DATA_LIMIT': limitBytes > 0 ? formatBytes(limitBytes) : '{{ lang._('No limit') }}',
@@ -126,6 +133,19 @@
 
         refreshAll();
         refreshTimer = setInterval(refreshAll, 30000);
+
+        // Honour the configured dashboard refresh interval
+        // (Settings -> General -> Update interval, 10-300s; default 30s).
+        ajaxGet('/api/hilink/settings/get', {}, function(data, status) {
+            if (status !== 'success' || !data || !data.hilink || !data.hilink.general) {
+                return;
+            }
+            var secs = parseInt(data.hilink.general.update_interval, 10);
+            if (!isNaN(secs) && secs >= 10 && secs <= 300 && secs !== 30) {
+                clearInterval(refreshTimer);
+                refreshTimer = setInterval(refreshAll, secs * 1000);
+            }
+        });
         $(window).on('unload', function() { clearInterval(refreshTimer); });
     });
 </script>

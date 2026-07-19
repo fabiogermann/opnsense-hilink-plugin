@@ -55,6 +55,9 @@
                 <roaming_enabled type="BooleanField">
                     <default>0</default>
                 </roaming_enabled>
+                <!-- deprecated: superseded by auto_disconnect_min; still read
+                     from existing configs and honoured as a fallback by the
+                     service. Not shown in the UI anymore. -->
                 <max_idle_time type="IntegerField">
                     <default>0</default>
                     <MinimumValue>0</MinimumValue>

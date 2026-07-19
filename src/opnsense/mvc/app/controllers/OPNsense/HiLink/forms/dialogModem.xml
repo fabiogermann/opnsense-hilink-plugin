@@ -45,13 +45,6 @@
         <type>dropdown</type>
     </field>
     <field>
-        <id>modem.max_idle_time</id>
-        <label>Max idle time</label>
-        <type>text</type>
-        <advanced>true</advanced>
-        <help>Disconnect after this many idle seconds (0 disables).</help>
-    </field>
-    <field>
         <id>modem.reconnect_interval</id>
         <label>Reconnect interval</label>
         <type>text</type>

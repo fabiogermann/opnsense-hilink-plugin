@@ -3,7 +3,7 @@
         <id>hilink.alerts.low_signal_threshold</id>
         <label>Low signal threshold</label>
         <type>text</type>
-        <help>Warn when the signal drops below this value in dBm (-120 to -50).</help>
+        <help>Warn when the signal drops below this value in dBm (-120 to -50). Note: alert conditions are currently logged by the service only (data-limit also disconnects the modem); email delivery is not yet implemented.</help>
     </field>
     <field>
         <id>hilink.alerts.data_limit_enabled</id>
@@ -21,7 +21,7 @@
         <id>hilink.alerts.email_alerts</id>
         <label>Email alerts</label>
         <type>checkbox</type>
-        <help>Send alerts by email.</help>
+        <help>Send alerts by email. NOT YET IMPLEMENTED — stored for a future release; alert conditions are written to the service log.</help>
     </field>
     <field>
         <id>hilink.alerts.email_to</id>

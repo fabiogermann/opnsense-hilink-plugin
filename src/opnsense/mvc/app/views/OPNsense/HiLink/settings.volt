@@ -26,9 +26,17 @@
         // Replace the "Active APN profile" text input with a named dropdown.
         // The form field stays as text (TextField in the model) to avoid
         // setFormData crashes; we hide it and add a visible <select> populated
-        // live from the modem's profile list. The API resolves to the first
-        // enabled modem when no modem_uuid is passed, so we don't need to
-        // capture the UUID from the edit click.
+        // live from the profile list of the modem being edited. The edit
+        // button carries the row uuid; for a newly added (unsaved) modem we
+        // fall back to the API's first-enabled-modem resolution.
+        var editingModemUuid = null;
+        $('#grid-modems').on('click', '.command-edit', function() {
+            editingModemUuid = $(this).data('row-id') || null;
+        });
+        $('#grid-modems').on('click', '[data-action="add"]', function() {
+            editingModemUuid = null;
+        });
+
         function setupProfileDropdown() {
             var $input = $('#modem\\.active_profile');
             if ($input.length === 0 || $input.data('profile-setup')) {
@@ -50,8 +58,10 @@
                 $input.val($(this).val());
             });
 
-            // Populate live from the modem
-            ajaxGet('/api/hilink/monitor/profiles', {}, function(data, status) {
+            // Populate live from the modem being edited
+            ajaxGet('/api/hilink/monitor/profiles',
+                editingModemUuid ? {'modem_uuid': editingModemUuid} : {},
+                function(data, status) {
                 if (status !== 'success' || !data || data['status'] !== 'ok') {
                     return;
                 }
@@ -181,11 +191,11 @@
                     fields.roaming_enabled = match[1];
                 }
                 if ((match = decoded.match(/<max_idle_time>(\d+)<\/max_idle_time>/))) {
-                    fields.max_idle_time = match[1];
+                    // nvram stores seconds; the plugin manages minutes
+                    fields.auto_disconnect_min = String(Math.floor(parseInt(match[1], 10) / 60));
                 }
-                if ((match = decoded.match(/<dataswitch>([01])<\/dataswitch>/))) {
-                    fields.auto_connect = match[1];
-                }
+                // Note: <dataswitch> is intentionally NOT mapped to auto_connect:
+                // it reflects the current session state, not the auto-dial flag.
                 if ((match = decoded.match(/<current_profile>(\d+)<\/current_profile>/))) {
                     fields.active_profile = match[1];
                 }
@@ -262,8 +272,8 @@
                             if (s.roaming_enabled !== undefined) {
                                 fields.roaming_enabled = s.roaming_enabled ? '1' : '0';
                             }
-                            if (s.max_idle_time !== undefined) {
-                                fields.max_idle_time = String(s.max_idle_time);
+                            if (s.auto_disconnect_min !== undefined) {
+                                fields.auto_disconnect_min = String(s.auto_disconnect_min);
                             }
                             if (s.auto_connect !== undefined) {
                                 fields.auto_connect = s.auto_connect ? '1' : '0';
