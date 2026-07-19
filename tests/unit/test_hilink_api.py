@@ -216,6 +216,56 @@ class TestHiLinkModem:
             assert signal.signal_bars == 5
     
     @pytest.mark.asyncio
+    async def test_get_signal_info_with_unit_suffixes(self, modem):
+        """Firmware returning '-75dBm'-style values must parse correctly"""
+        mock_response = """
+        <response>
+            <rssi>-75dBm</rssi>
+            <rsrp>-95dBm</rsrp>
+            <rsrq>-10dB</rsrq>
+            <sinr>15dB</sinr>
+        </response>
+        """
+
+        with patch.object(modem, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            signal = await modem.get_signal_info()
+
+            assert signal.rssi == -75
+            assert signal.rsrp == -95
+            assert signal.rsrq == -10
+            assert signal.sinr == 15
+            assert signal.signal_quality == "good"
+            assert signal.signal_bars == 4
+
+    @pytest.mark.asyncio
+    async def test_get_signal_info_empty_values(self, modem):
+        """Empty signal fields must not crash — and must not report full bars"""
+        mock_response = "<response><rssi></rssi></response>"
+
+        with patch.object(modem, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            signal = await modem.get_signal_info()
+
+            assert signal.rssi == -113
+            assert signal.signal_bars == 0
+            assert signal.signal_quality == "no signal"
+
+    @pytest.mark.asyncio
+    async def test_get_signal_info_csq_conversion(self, modem):
+        """Positive CSQ values (0-31) are converted to dBm"""
+        mock_response = "<response><rssi>20</rssi></response>"
+
+        with patch.object(modem, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            signal = await modem.get_signal_info()
+
+            assert signal.rssi == -73  # -113 + 20*2
+
+    @pytest.mark.asyncio
     async def test_get_data_usage(self, modem):
         """Test getting data usage"""
         mock_response_traffic = """
@@ -252,6 +302,52 @@ class TestHiLinkModem:
             assert usage.monthly_upload == 1073741824
             assert usage.monthly_download == 10737418240
     
+    @pytest.mark.asyncio
+    async def test_get_status_tolerates_empty_fields(self, modem):
+        """Empty numeric fields must not crash the whole status call"""
+        mock_response_device = "<response><DeviceName>E3372h-320</DeviceName></response>"
+        mock_response_status = """
+        <response>
+            <ConnectionStatus></ConnectionStatus>
+            <CurrentNetworkType></CurrentNetworkType>
+        </response>
+        """
+        mock_response_network = "<response><FullName>Carrier</FullName></response>"
+
+        with patch.object(modem, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.side_effect = [
+                mock_response_device,
+                mock_response_status,
+                mock_response_network,
+            ]
+
+            status = await modem.get_status()
+
+            assert status.connected is False
+            assert status.connection_status == ConnectionStatus.UNKNOWN
+            assert status.connection_time == 0
+
+    @pytest.mark.asyncio
+    async def test_get_data_usage_empty_fields(self, modem):
+        """Empty traffic counters degrade to zero instead of raising"""
+        mock_response_traffic = """
+        <response>
+            <CurrentUpload></CurrentUpload>
+            <CurrentDownload></CurrentDownload>
+        </response>
+        """
+        mock_response_month = "<response></response>"
+
+        with patch.object(modem, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.side_effect = [mock_response_traffic, mock_response_month]
+
+            usage = await modem.get_data_usage()
+
+            assert usage.session_upload == 0
+            assert usage.session_download == 0
+            assert usage.total_total == 0
+            assert usage.monthly_total == 0
+
     @pytest.mark.asyncio
     async def test_connect_modem(self, modem):
         """Test connecting the modem to network"""
@@ -362,6 +458,15 @@ class TestHiLinkModem:
         assert modem._parse_int(None) is None
         assert modem._parse_int("invalid") is None
         assert modem._parse_int("") is None
+
+    def test_parse_num(self, modem):
+        """Test suffix-tolerant numeric extraction"""
+        assert modem._parse_num("-75dBm") == -75
+        assert modem._parse_num("15dB") == 15
+        assert modem._parse_num("123") == 123
+        assert modem._parse_num(None) is None
+        assert modem._parse_num("") is None
+        assert modem._parse_num("dBm") is None
 
 
 class TestNetworkMode:
