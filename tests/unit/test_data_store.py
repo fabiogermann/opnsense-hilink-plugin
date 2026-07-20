@@ -92,7 +92,11 @@ class TestDataStore:
         assert "uptime_percentage" in stats
 
     def test_get_latest(self, store):
+        # RRDtool only commits a PDP once the following update closes the
+        # interval, so a lone update leaves every row NaN. Two updates are
+        # the realistic minimum (the daemon writes every collect_interval).
         store.create_rrd("modem-1")
+        store.update("modem-1", _metric(_ts(-30)))
         store.update("modem-1", _metric(_ts(0)))
         latest = store.get_latest("modem-1")
         assert latest is not None
