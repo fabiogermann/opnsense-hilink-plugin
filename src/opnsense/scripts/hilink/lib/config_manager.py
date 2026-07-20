@@ -6,7 +6,9 @@ Handles loading, saving, and validating configuration
 import os
 import json
 import logging
-import xml.etree.ElementTree as ET
+
+# Parses local plugin/OPNsense config files only
+import xml.etree.ElementTree as ET  # nosec B405
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -228,7 +230,8 @@ class ConfigManager:
         if xml_file is None:
             xml_file = self.xml_file
         try:
-            tree = ET.parse(xml_file)
+            # local config.xml, not untrusted input
+            tree = ET.parse(xml_file)  # nosec B314
             root = tree.getroot()
 
             # Find hilink section
@@ -281,18 +284,12 @@ class ConfigManager:
                         auto_disconnect_min=self._findint(
                             modem_elem, "auto_disconnect_min", 0
                         ),
-                        lte_band=modem_elem.findtext("lte_band")
-                        or "7FFFFFFFFFFFFFFF",
-                        network_band=modem_elem.findtext("network_band")
-                        or "3FFFFFFF",
-                        network_search=modem_elem.findtext("network_search")
-                        or "auto",
-                        manual_plmn=modem_elem.findtext("manual_plmn", "")
-                        or "",
-                        manual_rat=modem_elem.findtext("manual_rat")
-                        or "auto",
-                        active_profile=modem_elem.findtext("active_profile", "")
-                        or "",
+                        lte_band=modem_elem.findtext("lte_band") or "7FFFFFFFFFFFFFFF",
+                        network_band=modem_elem.findtext("network_band") or "3FFFFFFF",
+                        network_search=modem_elem.findtext("network_search") or "auto",
+                        manual_plmn=modem_elem.findtext("manual_plmn", "") or "",
+                        manual_rat=modem_elem.findtext("manual_rat") or "auto",
+                        active_profile=modem_elem.findtext("active_profile", "") or "",
                         collect_interval=self._findint(
                             modem_elem, "collect_interval", 30
                         ),
@@ -438,9 +435,7 @@ class ConfigManager:
                 StandardET.SubElement(modem_elem, "manual_plmn").text = (
                     modem.manual_plmn
                 )
-                StandardET.SubElement(modem_elem, "manual_rat").text = (
-                    modem.manual_rat
-                )
+                StandardET.SubElement(modem_elem, "manual_rat").text = modem.manual_rat
                 StandardET.SubElement(modem_elem, "active_profile").text = (
                     modem.active_profile
                 )

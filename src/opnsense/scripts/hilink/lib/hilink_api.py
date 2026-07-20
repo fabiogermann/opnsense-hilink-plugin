@@ -14,13 +14,16 @@ import uuid
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
-from xml.sax.saxutils import escape as _xml_escape
+
+# saxutils.escape is used to ESCAPE outbound XML here, not to parse untrusted data
+from xml.sax.saxutils import escape as _xml_escape  # nosec B406
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
-import xml.etree.ElementTree as _ET
+# Parses modem-on-LAN XML only; defusedxml is not in the OPNsense stock package set
+import xml.etree.ElementTree as _ET  # nosec B405
 from html.parser import HTMLParser as _HTMLParser
 
 
@@ -49,7 +52,8 @@ def _elem_to_dict(elem):
 
 def xml_to_dict(xml_text):
     """Mimic xmltodict.parse(): returns {root_tag: <root content>}."""
-    root = _ET.fromstring(xml_text)
+    # stdlib expat does not resolve external entities
+    root = _ET.fromstring(xml_text)  # nosec B314
     tag = root.tag
     if isinstance(tag, str) and "}" in tag:
         tag = tag.split("}", 1)[1]
@@ -322,7 +326,11 @@ class HiLinkModem:
 
         try:
             response = await self.session.request(
-                method, url, content=data, headers=request_headers, cookies=cookies,
+                method,
+                url,
+                content=data,
+                headers=request_headers,
+                cookies=cookies,
             )
             self._update_session_info(response)
             text = response.text
@@ -686,7 +694,8 @@ class HiLinkModem:
             total_upload=total_upload,
             total_download=total_download,
             total_total=total_upload + total_download,
-            monthly_upload=self._parse_num(monthly_stats.get("CurrentMonthUpload")) or 0,
+            monthly_upload=self._parse_num(monthly_stats.get("CurrentMonthUpload"))
+            or 0,
             monthly_download=(
                 self._parse_num(monthly_stats.get("CurrentMonthDownload")) or 0
             ),
@@ -871,7 +880,9 @@ class HiLinkModem:
             logger.error(f"Failed to set bands: {e}")
             return False
 
-    async def set_network_search(self, mode: str, plmn: str = "", rat: str = "auto") -> bool:
+    async def set_network_search(
+        self, mode: str, plmn: str = "", rat: str = "auto"
+    ) -> bool:
         """Set PLMN network search mode (auto/manual).
 
         ``mode`` is 'auto' or 'manual'. When manual, ``plmn`` is the numeric
@@ -941,11 +952,13 @@ class HiLinkModem:
         for net in network:
             if not isinstance(net, dict):
                 continue
-            result.append({
-                "Name": net.get("Name", ""),
-                "Numeric": net.get("Numeric", ""),
-                "Rat": net.get("Rat", ""),
-            })
+            result.append(
+                {
+                    "Name": net.get("Name", ""),
+                    "Numeric": net.get("Numeric", ""),
+                    "Rat": net.get("Rat", ""),
+                }
+            )
         return result
 
     async def get_profiles(self) -> list:
@@ -967,15 +980,17 @@ class HiLinkModem:
             for p in profiles:
                 if not isinstance(p, dict):
                     continue
-                result.append({
-                    "Index": p.get("Index", ""),
-                    "Name": p.get("Name", ""),
-                    "Apn": p.get("Apn", ""),
-                    "Username": p.get("Username", ""),
-                    "AuthName": p.get("AuthName", ""),
-                    "DialNumber": p.get("DialNumber", ""),
-                    "IpType": p.get("IpType", ""),
-                })
+                result.append(
+                    {
+                        "Index": p.get("Index", ""),
+                        "Name": p.get("Name", ""),
+                        "Apn": p.get("Apn", ""),
+                        "Username": p.get("Username", ""),
+                        "AuthName": p.get("AuthName", ""),
+                        "DialNumber": p.get("DialNumber", ""),
+                        "IpType": p.get("IpType", ""),
+                    }
+                )
             return result
         except HiLinkException as e:
             logger.error(f"Failed to list profiles for modem {self.name}: {e}")
@@ -1011,19 +1026,31 @@ class HiLinkModem:
                 profiles = []
 
             target = next(
-                (p for p in profiles if isinstance(p, dict) and str(p.get("Index")) == str(profile_index)),
+                (
+                    p
+                    for p in profiles
+                    if isinstance(p, dict) and str(p.get("Index")) == str(profile_index)
+                ),
                 None,
             )
             if target is None:
-                logger.error(f"Profile index {profile_index} not found on modem {self.name}")
+                logger.error(
+                    f"Profile index {profile_index} not found on modem {self.name}"
+                )
                 return False
 
             # Re-post the chosen profile; CurrentProfile selects it.
             fields = [
-                "Index", "Name", "Apn", "Username", "Password", "AuthName",
-                "DialNumber", "IpType",
+                "Index",
+                "Name",
+                "Apn",
+                "Username",
+                "Password",
+                "AuthName",
+                "DialNumber",
+                "IpType",
             ]
-            body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<request>"
+            body = '<?xml version="1.0" encoding="UTF-8"?>\n<request>'
             body += f"<Profiles><CurrentProfile>{_xml_escape(str(profile_index))}</CurrentProfile>"
             body += "<Profile>"
             for f in fields:
@@ -1064,7 +1091,9 @@ class HiLinkModem:
             mode = str(data["response"].get("NetworkMode", "00"))
             settings["network_mode"] = self.NETWORK_MODE_TO_CONFIG.get(mode, "auto")
             settings["lte_band"] = str(data["response"].get("LTEBand", "")).upper()
-            settings["network_band"] = str(data["response"].get("NetworkBand", "")).upper()
+            settings["network_band"] = str(
+                data["response"].get("NetworkBand", "")
+            ).upper()
 
         response = await self._request("GET", "/api/dialup/connection")
         data = xml_to_dict(response)

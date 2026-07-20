@@ -9,7 +9,9 @@ rrdtool binding, which is not part of the OPNsense stock package set.
 import os
 import time
 import logging
-import subprocess
+import subprocess  # nosec B404
+
+# ^ invoked with a fixed argv list, never a shell
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -20,11 +22,14 @@ logger = logging.getLogger(__name__)
 
 def _rrd_run(args, want_output=False):
     """Run the rrdtool CLI; raise on failure (callers wrap in try/except)."""
+    # fixed argv, no shell; rrdtool resolved via PATH (declared pkg dep)
     proc = subprocess.run(
-        ["rrdtool", *args], capture_output=True, text=True,
+        ["rrdtool", *args], capture_output=True, text=True  # nosec B603 B607
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"rrdtool {' '.join(args[:1])} failed: {proc.stderr.strip()}")
+        raise RuntimeError(
+            f"rrdtool {' '.join(args[:1])} failed: {proc.stderr.strip()}"
+        )
     return proc.stdout if want_output else None
 
 
@@ -73,7 +78,8 @@ def _rrd_info(path):
         if "=" not in ln:
             continue
         k, v = ln.split("=", 1)
-        k = k.strip(); v = v.strip()
+        k = k.strip()
+        v = v.strip()
         if v.startswith('"') and v.endswith('"'):
             info[k] = v[1:-1]
         else:
